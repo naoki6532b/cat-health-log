@@ -1,69 +1,65 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
 
-type Food = { id: number; food_name: string; kcal_per_g: number };
+type Food = {
+  id: number;
+  food_name: string;
+  kcal_per_g: number;
+};
 
 function toDatetimeLocal(d: Date) {
-  const pad = (n:number)=> String(n).padStart(2,"0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-export default function MealEntry() {
+export default function MealEntryPage() {
   const [foods, setFoods] = useState<Food[]>([]);
-  const [foodId, setFoodId] = useState<number | null>(null);
-  const [dtLocal, setDtLocal] = useState(toDatetimeLocal(new Date()));
-  const [grams, setGrams] = useState("");
-  const [kcal, setKcal] = useState("");
-  const [note, setNote] = useState("");
   const [msg, setMsg] = useState("");
 
-  const lock = useRef<"g"|"k"|null>(null);
+  const [dtLocal, setDtLocal] = useState(toDatetimeLocal(new Date()));
+  const [foodId, setFoodId] = useState<number | "">("");
+  const [grams, setGrams] = useState<string>("");
+  const [kcal, setKcal] = useState<string>("");
 
-  const loadFoods = async () => {
-    setMsg("");
-    const res = await apiFetch("/api/foods");
-    const data = await res.json();
-    setFoods(data);
-    if (data.length) setFoodId(data[0].id);
-  };
-
-  useEffect(() => { loadFoods().catch(e => setMsg(String(e.message ?? e))); }, []);
-
-  const selected = useMemo(
-    () => foods.find(f => f.id === foodId) ?? null,
-    [foods, foodId]
-  );
+  const selected = useMemo(() => foods.find((f) => f.id === foodId) ?? null, [foods, foodId]);
 
   // g入力 → kcal自動
   useEffect(() => {
     if (!selected) return;
-    if (lock.current === "k") return;
-    lock.current = "g";
-
     const g = Number(grams);
-    if (!grams || Number.isNaN(g)) { setKcal(""); lock.current=null; return; }
-    setKcal((g * Number(selected.kcal_per_g)).toFixed(1));
-    lock.current = null;
+    if (!g || Number.isNaN(g)) return;
+    const k = g * selected.kcal_per_g;
+    setKcal(k.toFixed(1));
   }, [grams, selected]);
 
   // kcal入力 → g自動
   useEffect(() => {
     if (!selected) return;
-    if (lock.current === "g") return;
-    lock.current = "k";
-
     const k = Number(kcal);
-    if (!kcal || Number.isNaN(k)) { setGrams(""); lock.current=null; return; }
-    setGrams((k / Number(selected.kcal_per_g)).toFixed(1));
-    lock.current = null;
+    if (!k || Number.isNaN(k) || selected.kcal_per_g === 0) return;
+    const g = k / selected.kcal_per_g;
+    setGrams(g.toFixed(1));
   }, [kcal, selected]);
+
+  const loadFoods = async () => {
+    setMsg("");
+    const res = await apiFetch("/api/foods");
+    const data = (await res.json()) as Food[];
+    setFoods(data);
+    // 既に選択が無ければ先頭を選ぶ
+    if (data.length > 0 && foodId === "") setFoodId(data[0].id);
+  };
+
+  useEffect(() => {
+    loadFoods().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const save = async () => {
     setMsg("");
-    if (!selected || !foodId) return setMsg("フードが未登録です（先に/foodsで追加）");
-
+    if (!foodId) return setMsg("フードを選択してください");
     const g = Number(grams);
     const k = Number(kcal);
     if (!g || Number.isNaN(g)) return setMsg("グラム数を入力してください");
@@ -77,48 +73,60 @@ export default function MealEntry() {
         food_id: foodId,
         grams: g,
         kcal: k,
-        note,
       }),
     });
 
     setMsg("保存しました");
-    setNote("");
   };
 
   return (
     <main style={{ padding: 16, maxWidth: 650 }}>
       <h2>給餌入力</h2>
-      <div style={{ color: "red" }}>{msg}</div>
+      {msg && <div style={{ color: msg.startsWith("ERROR") ? "red" : "green" }}>{msg}</div>}
 
       <div>
         <div>日時（デフォルト現在・修正可）</div>
-        <input type="datetime-local" value={dtLocal} onChange={e=>setDtLocal(e.target.value)} />
+        <input type="datetime-local" value={dtLocal} onChange={(e) => setDtLocal(e.target.value)} />
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <div>フード（ドロップダウン）</div>
-        <select value={foodId ?? ""} onChange={e=>setFoodId(Number(e.target.value))} style={{ width: "100%" }}>
-          {foods.map(f => <option key={f.id} value={f.id}>{f.food_name}</option>)}
+        <div>フード名</div>
+        <select
+          value={foodId === "" ? "" : String(foodId)}
+          onChange={(e) => setFoodId(e.target.value ? Number(e.target.value) : "")}
+          style={{ width: "100%" }}
+        >
+          {foods.map((f) => (
+            <option key={f.id} value={String(f.id)}>
+              {f.food_name}
+            </option>
+          ))}
         </select>
-        {selected && <small>1gあたり {Number(selected.kcal_per_g).toFixed(3)} kcal</small>}
-      </div>
-
-      <div style={{ marginTop: 10 }}>
-        <div>グラム(g) / カロリー(kcal)（どちらでも入力OK → 自動計算）</div>
-        <div style={{ display:"flex", gap:8 }}>
-          <input type="number" value={grams} onChange={e=>setGrams(e.target.value)} placeholder="g" style={{ flex:1 }} />
-          <input type="number" value={kcal}  onChange={e=>setKcal(e.target.value)}  placeholder="kcal" style={{ flex:1 }} />
+        <div style={{ marginTop: 6, color: "#555" }}>
+          1gあたりkcal：{selected ? selected.kcal_per_g.toFixed(6) : "－"}
         </div>
+        <button style={{ marginTop: 8 }} onClick={() => loadFoods().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}>
+          フード一覧を再読込
+        </button>
       </div>
 
       <div style={{ marginTop: 10 }}>
-        <div>メモ</div>
-        <textarea rows={4} value={note} onChange={e=>setNote(e.target.value)} style={{ width:"100%" }} />
+        <div>量</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div>グラム (g)</div>
+            <input value={grams} onChange={(e) => setGrams(e.target.value)} style={{ width: "100%" }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div>カロリー (kcal)</div>
+            <input value={kcal} onChange={(e) => setKcal(e.target.value)} style={{ width: "100%" }} />
+          </div>
+        </div>
+        <small>※ g入力でkcal自動、kcal入力でg自動（フード選択が必要）</small>
       </div>
 
-      <div style={{ marginTop: 12, display:"flex", gap:8 }}>
-        <button onClick={() => save().catch(e => setMsg(String(e.message ?? e)))}>保存</button>
-        <button onClick={() => loadFoods().catch(e => setMsg(String(e.message ?? e)))}>フード再読込</button>
+      <div style={{ marginTop: 12 }}>
+        <button onClick={() => save().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}>保存</button>
       </div>
     </main>
   );
