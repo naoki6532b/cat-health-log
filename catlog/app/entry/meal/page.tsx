@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import RecentMeals from "../../components/RecentMeals";
+import RecentMeals from "../../../components/RecentMeals";
 
 type Food = {
   id: any;

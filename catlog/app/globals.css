@@ -1,7 +1,62 @@
-/* 背景にうっすらグラデ＋粒子っぽさ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Palette: Sky blue / Beige / Light brown */
+  --bg: #f5efe6;          /* beige */
+  --head: #cfe8f5;        /* sky blue */
+  --text: #2b2520;        /* dark brownish */
+  --muted: #6b5b50;       /* muted brown */
+  --line: rgba(91, 70, 54, 0.22);
+}
+
+html, body {
+  height: 100%;
+}
+
 body {
-  background: radial-gradient(1200px 600px at 20% 0%, rgba(24,24,27,0.06), transparent 55%),
-              radial-gradient(900px 500px at 100% 10%, rgba(59,130,246,0.06), transparent 55%),
-              radial-gradient(900px 500px at 60% 100%, rgba(16,185,129,0.05), transparent 55%),
-              #fafafa;
+  font-family: "Meiryo", "Segoe UI", system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.bg-app { background: var(--bg); }
+.bg-head { background: var(--head); }
+.text-app { color: var(--text); }
+.text-muted { color: var(--muted); }
+.border-line { border-color: var(--line); }
+
+.navbtn {
+  @apply rounded-2xl border px-4 py-2 text-sm font-semibold shadow-sm transition;
+  border-color: var(--line);
+  background: rgba(255,255,255,0.85);
+}
+.navbtn:hover { background: rgba(255,255,255,1); }
+
+.bottombtn {
+  @apply flex flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-[11px] shadow-sm transition;
+  border-color: var(--line);
+  background: rgba(255,255,255,0.9);
+  color: var(--muted);
+}
+.bottombtn:hover { background: rgba(255,255,255,1); }
+
+.card {
+  @apply rounded-2xl border shadow-sm;
+  border-color: var(--line);
+  background: rgba(255,255,255,0.75);
+}
+
+.btn {
+  @apply rounded-2xl border px-4 py-2 text-sm font-semibold shadow-sm transition;
+  border-color: var(--line);
+  background: rgba(255,255,255,0.9);
+}
+.btn:hover { background: rgba(255,255,255,1); }
+
+.input, .select {
+  @apply w-full rounded-xl border px-3 py-2 text-sm outline-none;
+  border-color: var(--line);
+  background: rgba(255,255,255,0.9);
 }
