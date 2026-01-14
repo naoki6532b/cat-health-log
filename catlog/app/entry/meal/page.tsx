@@ -5,16 +5,14 @@ import { apiFetch } from "@/lib/api";
 import RecentMeals from "../../../components/RecentMeals";
 
 type Food = {
-  id: any;
+  id: string | number;
   food_name: string;
   kcal_per_g: number;
 };
 
 function toDatetimeLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function MealEntryPage() {
@@ -22,16 +20,21 @@ export default function MealEntryPage() {
   const [msg, setMsg] = useState("");
 
   const [dtLocal, setDtLocal] = useState(toDatetimeLocal(new Date()));
-  const [foodId, setFoodId] = useState<any>("");
+  // ★ここ重要：selectのvalueは string で統一（波線対策）
+  const [foodId, setFoodId] = useState<string>("");
   const [grams, setGrams] = useState<string>("");
   const [kcal, setKcal] = useState<string>("");
 
   const [lastEdited, setLastEdited] = useState<"g" | "k" | null>(null);
 
+  // ★保存後に直近ログを自動更新したい（①）
+  const [recentKey, setRecentKey] = useState(0);
+
   const selected = useMemo(() => {
     return foods.find((f) => String(f.id) === String(foodId)) ?? null;
   }, [foods, foodId]);
 
+  // g入力 → kcal自動
   useEffect(() => {
     if (!selected) return;
     if (lastEdited !== "g") return;
@@ -43,23 +46,36 @@ export default function MealEntryPage() {
     setKcal(k.toFixed(1));
   }, [grams, selected, lastEdited]);
 
+  // kcal入力 → g自動
   useEffect(() => {
     if (!selected) return;
     if (lastEdited !== "k") return;
 
     const k = Number(kcal);
-    if (!k || Number.isNaN(k) || Number(selected.kcal_per_g) === 0) return;
+    const per = Number(selected.kcal_per_g);
+    if (!k || Number.isNaN(k) || !per || Number.isNaN(per)) return;
 
-    const g = k / Number(selected.kcal_per_g);
+    const g = k / per;
     setGrams(g.toFixed(1));
   }, [kcal, selected, lastEdited]);
 
   const loadFoods = async () => {
     setMsg("");
     const res = await apiFetch("/api/foods");
+
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t);
+    }
+
     const data = (await res.json()) as Food[];
-    setFoods(data ?? []);
-    if ((data ?? []).length > 0 && (foodId === "" || foodId == null)) setFoodId((data as any[])[0].id);
+    const list = data ?? [];
+    setFoods(list);
+
+    // 初期選択（必ず string にする）
+    if (list.length > 0 && !foodId) {
+      setFoodId(String(list[0].id));
+    }
   };
 
   useEffect(() => {
@@ -76,26 +92,34 @@ export default function MealEntryPage() {
 
   const save = async () => {
     setMsg("");
-    if (foodId === "" || foodId == null) return setMsg("フードを選択してください");
+    if (!foodId) return setMsg("フードを選択してください");
 
     const g = Number(grams);
     const k = Number(kcal);
     if (!g || Number.isNaN(g)) return setMsg("グラム数を入力してください");
     if (!k || Number.isNaN(k)) return setMsg("カロリーが不正です");
 
-    await apiFetch("/api/meals", {
+    const res = await apiFetch("/api/meals", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         dt: new Date(dtLocal).toISOString(),
-        food_id: foodId,
+        food_id: Number(foodId), // DBが数値ならここで戻す
         grams: g,
         kcal: k,
       }),
     });
 
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(t);
+    }
+
     setMsg("保存しました");
     resetForm();
+
+    // ★直近ログを自動更新（①）
+    setRecentKey((v) => v + 1);
   };
 
   return (
@@ -113,7 +137,9 @@ export default function MealEntryPage() {
         <div
           className={
             "rounded-2xl border px-4 py-3 text-sm " +
-            (msg.startsWith("ERROR") ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700")
+            (msg.startsWith("ERROR")
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700")
           }
         >
           {msg}
@@ -139,14 +165,14 @@ export default function MealEntryPage() {
           <label className="block">
             <div className="mb-1 text-sm font-medium">フード</div>
             <select
-              value={foodId === "" || foodId == null ? "" : String(foodId)}
+              value={foodId}
               onChange={(e) => {
-                setFoodId(e.target.value || "");
+                setFoodId(e.target.value);
                 setLastEdited(null);
               }}
               className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
             >
-              {foods.map((f) => (
+              {(foods ?? []).map((f) => (
                 <option key={String(f.id)} value={String(f.id)}>
                   {f.food_name}
                 </option>
@@ -167,10 +193,11 @@ export default function MealEntryPage() {
               <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
               <input
                 value={grams}
-                onChange={(e) => {
-                  setLastEdited("g");
-                  setGrams(e.target.value);
-                }}
+onChange={(e) => {
+  setLastEdited("g" as const);
+  setGrams(e.target.value);
+}}
+
                 inputMode="decimal"
                 className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
               />
@@ -180,10 +207,11 @@ export default function MealEntryPage() {
               <div className="mb-1 text-xs text-zinc-500">カロリー (kcal)</div>
               <input
                 value={kcal}
-                onChange={(e) => {
-                  setLastEdited("k");
-                  setKcal(e.target.value);
-                }}
+onChange={(e) => {
+  setLastEdited("k" as const);
+  setKcal(e.target.value);
+}}
+
                 inputMode="decimal"
                 className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
               />
@@ -220,7 +248,7 @@ export default function MealEntryPage() {
 
       {/* 直近ログ */}
       <div className="rounded-3xl border bg-white p-4 shadow-sm sm:p-6">
-        <RecentMeals limit={20} />
+        <RecentMeals key={recentKey} limit={20} />
       </div>
     </div>
   );
