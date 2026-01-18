@@ -1,26 +1,52 @@
-import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../../_pin";
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { checkPin } from "../../_pin"; // ★ここが正しい（elims配下の _pin）
+
+export const dynamic = "force-dynamic";
+
+// Next.js 16: params は Promise
+type RouteCtx = { params: Promise<{ id: string }> };
+
+function parseId(raw: unknown): number | null {
+  const s = String(raw ?? "").trim();
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
 
 function getIdFromUrl(req: Request): number | null {
   try {
     const u = new URL(req.url);
     const parts = u.pathname.split("/").filter(Boolean);
     const last = parts[parts.length - 1];
-    const id = Number(last);
-    return Number.isFinite(id) ? id : null;
+    return parseId(last);
   } catch {
     return null;
   }
 }
 
-export async function PATCH(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+async function getId(req: Request, ctx?: RouteCtx): Promise<number | null> {
+  // まず Next.js の params を試す（取れない環境があるので try）
+  try {
+    const p = await ctx?.params;
+    const id = parseId(p?.id);
+    if (id) return id;
+  } catch {
+    // ignore
+  }
+  // ダメなら URL から拾う
+  return getIdFromUrl(req);
+}
+
+export async function PATCH(req: NextRequest, ctx: RouteCtx) {
+  // ★checkPin は boolean 前提：true/false のみ扱う（絶対に boolean を return しない）
+  if (!checkPin(req)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   try {
-    const id = getIdFromUrl(req);
-    if (id === null) return NextResponse.json({ error: "Bad id" }, { status: 400 });
+    const id = await getId(req, ctx);
+    if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
@@ -38,7 +64,8 @@ export async function PATCH(req: Request) {
     if (body.vomit !== undefined) patch.vomit = body.vomit === true;
     if (body.kind !== undefined) patch.kind = String(body.kind);
 
-    const { error } = await supabaseAdmin.from("cat_elims").update(patch).eq("id", id);
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("cat_elims").update(patch).eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
@@ -47,15 +74,17 @@ export async function PATCH(req: Request) {
   }
 }
 
-export async function DELETE(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+export async function DELETE(req: NextRequest, ctx: RouteCtx) {
+  if (!checkPin(req)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   try {
-    const id = getIdFromUrl(req);
-    if (id === null) return NextResponse.json({ error: "Bad id" }, { status: 400 });
+    const id = await getId(req, ctx);
+    if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    const { error } = await supabaseAdmin.from("cat_elims").delete().eq("id", id);
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("cat_elims").delete().eq("id", id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
     return NextResponse.json({ ok: true });
