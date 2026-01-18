@@ -1,45 +1,20 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 import { checkPin } from "../../_pin";
 
 export const dynamic = "force-dynamic";
 
-type CatFoodsJoin =
-  | { food_name?: string | null; name?: string | null }
-  | { food_name?: string | null; name?: string | null }[]
-  | null
-  | undefined;
-
-type Row = {
-  id: number;
-  dt: string;
-  food_id: number | null;
-  grams: number | null;
-  kcal: number | null;
-  note: string | null;
-  kcal_per_g_snapshot?: number | null;
-  leftover_g?: number | null;
-  cat_foods?: CatFoodsJoin;
-};
-
-function pickFoodName(cat_foods: CatFoodsJoin): string | null {
-  if (!cat_foods) return null;
-  if (Array.isArray(cat_foods)) {
-    const v = cat_foods[0]?.food_name ?? cat_foods[0]?.name ?? null;
-    return v == null ? null : String(v);
-  }
-  const v = cat_foods.food_name ?? cat_foods.name ?? null;
-  return v == null ? null : String(v);
+function pickFoodName(embed: any): string | null {
+  const cf = Array.isArray(embed) ? embed[0] : embed;
+  return (cf?.food_name ?? null) as string | null;
 }
 
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   if (!checkPin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const supabase = getSupabaseAdmin();
-
   const url = new URL(req.url);
-  const limitRaw = Number(url.searchParams.get("limit") ?? "20");
-  const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 20));
+  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20")));
 
   const { data, error } = await supabase
     .from("cat_meals")
@@ -49,18 +24,18 @@ export async function GET(req: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (data ?? []) as unknown as Row[];
+  const rows = (data ?? []) as any[];
 
   const out = rows.map((r) => ({
     id: r.id,
     dt: r.dt,
-    food_id: r.food_id,
-    food_name: pickFoodName(r.cat_foods) ?? null,
-    grams: r.grams,
-    kcal: r.kcal,
-    note: r.note,
-    kcal_per_g_snapshot: r.kcal_per_g_snapshot ?? null,
-    leftover_g: r.leftover_g ?? null,
+    food_id: r.food_id ?? null,
+    food_name: pickFoodName(r.cat_foods),
+    grams: r.grams ?? null,
+    kcal: r.kcal ?? null,
+    note: r.note ?? null,
+    kcal_per_g_snapshot: Number(r.kcal_per_g_snapshot ?? 0),
+    leftover_g: Number(r.leftover_g ?? 0),
   }));
 
   return NextResponse.json(out);
