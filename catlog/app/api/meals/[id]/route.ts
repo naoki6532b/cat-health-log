@@ -1,96 +1,105 @@
-import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { NextResponse } from "next/server";
+import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
 
-// Next.js 16 の App Router: params は Promise
+export const dynamic = "force-dynamic";
+
+// Next.js 16 の App Router: params は Promise で渡る
 type RouteCtx = { params: Promise<{ id: string }> };
 
 function parseId(raw: unknown) {
-  const s = String(raw ?? "").trim();
+  const s = String(raw ?? "");
   const n = Number(s);
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
-function getId(req: Request, params?: { id?: string } | null) {
-  // 基本は params.id。念のため pathname 末尾も fallback
-  const idStr = params?.id ?? new URL(req.url).pathname.split("/").pop();
-  return parseId(idStr);
-}
-
-export async function GET(req: NextRequest, { params }: RouteCtx) {
-  const p = await params;
-  const id = getId(req, p);
-
-  if (!id) {
-    return NextResponse.json(
-      { error: "invalid id", debug: { pathname: new URL(req.url).pathname, params: p ?? null } },
-      { status: 400 }
-    );
+function getIdFromUrl(req: Request): number | null {
+  try {
+    const pathname = new URL(req.url).pathname; // /api/meals/44
+    const last = pathname.split("/").filter(Boolean).pop();
+    return parseId(last);
+  } catch {
+    return null;
   }
+}
 
-  const { data, error } = await supabaseAdmin
+async function getId(req: Request, ctx?: Partial<RouteCtx>): Promise<number | null> {
+  // ctx.params が取れる時（本番ビルド想定）
+  try {
+    if (ctx?.params) {
+      const p = await ctx.params;
+      const id = parseId(p?.id);
+      if (id) return id;
+    }
+  } catch {
+    // 何もしないでURL fallbackへ
+  }
+  // fallback（devで稀に ctx が崩れた時の保険）
+  return getIdFromUrl(req);
+}
+
+export async function GET(req: Request, ctx: RouteCtx) {
+  const supabase = getSupabaseAdmin();
+  const id = await getId(req, ctx);
+  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
+
+  const { data, error } = await supabase
     .from("cat_meals")
-    .select("id, dt, food_id, grams, kcal, note, kcal_per_g_snapshot, leftover_g")
+    .select("id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g")
     .eq("id", id)
-    .maybeSingle();
+    .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
-
   return NextResponse.json(data);
 }
 
-export async function PATCH(req: NextRequest, { params }: RouteCtx) {
-  const p = await params;
-  const id = getId(req, p);
+export async function PATCH(req: Request, ctx: RouteCtx) {
+  const supabase = getSupabaseAdmin();
+  const id = await getId(req, ctx);
+  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  if (!id) {
-    return NextResponse.json(
-      { error: "invalid id", debug: { pathname: new URL(req.url).pathname, params: p ?? null } },
-      { status: 400 }
-    );
+  const body = await req.json().catch(() => ({} as any));
+
+  const patch: any = {};
+
+  if (body.dt != null) patch.dt = String(body.dt);
+  if (body.grams != null) patch.grams = Number(body.grams);
+  if (body.kcal != null) patch.kcal = Number(body.kcal);
+  if (body.note !== undefined) patch.note = body.note == null ? null : String(body.note);
+  if (body.leftover_g != null) patch.leftover_g = Number(body.leftover_g);
+
+  // food_id を変えるなら snapshot も必ず更新
+  if (body.food_id != null && body.food_id !== "") {
+    const newFoodId = Number(body.food_id);
+    patch.food_id = newFoodId;
+
+    const { data: food, error: foodErr } = await supabase
+      .from("cat_foods")
+      .select("kcal_per_g")
+      .eq("id", newFoodId)
+      .single();
+
+    if (foodErr) return NextResponse.json({ error: foodErr.message }, { status: 500 });
+
+    const snap = Number(food?.kcal_per_g);
+    if (!Number.isFinite(snap)) {
+      return NextResponse.json({ error: "kcal_per_g_snapshot is invalid (food kcal_per_g missing)" }, { status: 500 });
+    }
+    patch.kcal_per_g_snapshot = snap;
   }
 
-  const body = await req.json().catch(() => null);
-  if (!body || typeof body !== "object") {
-    return NextResponse.json({ error: "invalid body" }, { status: 400 });
-  }
-
-  // ここは既存の仕様に合わせて「来たものだけ更新」
-  // ※ dt/food_id/grams/kcal/note/kcal_per_g_snapshot/leftover_g を想定
-  const patch: Record<string, any> = {};
-  for (const k of ["dt", "food_id", "grams", "kcal", "note", "kcal_per_g_snapshot", "leftover_g"]) {
-    if (k in (body as any)) patch[k] = (body as any)[k];
-  }
-
-  if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: "no fields to update" }, { status: 400 });
-  }
-
-  const { data, error } = await supabaseAdmin
-    .from("cat_meals")
-    .update(patch)
-    .eq("id", id)
-    .select("id, dt, food_id, grams, kcal, note, kcal_per_g_snapshot, leftover_g")
-    .maybeSingle();
-
+  const { error } = await supabase.from("cat_meals").update(patch).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  return NextResponse.json(data);
+  return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: NextRequest, { params }: RouteCtx) {
-  const p = await params;
-  const id = getId(req, p);
+export async function DELETE(req: Request, ctx: RouteCtx) {
+  const supabase = getSupabaseAdmin();
+  const id = await getId(req, ctx);
+  if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  if (!id) {
-    return NextResponse.json(
-      { error: "invalid id", debug: { pathname: new URL(req.url).pathname, params: p ?? null } },
-      { status: 400 }
-    );
-  }
-
-  const { error } = await supabaseAdmin.from("cat_meals").delete().eq("id", id);
+  const { error } = await supabase.from("cat_meals").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
