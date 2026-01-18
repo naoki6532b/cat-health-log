@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { NextRequest, NextResponse } from "next/server";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 
-// Next.js 16 の App Router: params は Promise で渡る
+// Next.js 16 の App Router: params は Promise
 type RouteCtx = { params: Promise<{ id: string }> };
 
 function parseId(raw: unknown) {
@@ -15,91 +15,84 @@ function parseId(raw: unknown) {
 
 function getIdFromUrl(req: Request): number | null {
   try {
-    const pathname = new URL(req.url).pathname; // /api/meals/44
-    const last = pathname.split("/").filter(Boolean).pop();
-    return parseId(last);
+    const u = new URL(req.url);
+    const m = u.pathname.match(/\/api\/meals\/(\d+)(?:\/)?$/);
+    return m ? parseId(m[1]) : null;
   } catch {
     return null;
   }
 }
 
-async function getId(req: Request, ctx?: Partial<RouteCtx>): Promise<number | null> {
-  // ctx.params が取れる時（本番ビルド想定）
-  try {
-    if (ctx?.params) {
-      const p = await ctx.params;
-      const id = parseId(p?.id);
-      if (id) return id;
-    }
-  } catch {
-    // 何もしないでURL fallbackへ
+async function getId(req: Request, ctx?: { id?: string } | null, ctxPromise?: Promise<{ id: string }>) {
+  // 1) ctxPromise (Next.js 16 正式)
+  if (ctxPromise) {
+    const p = await ctxPromise;
+    const id = parseId(p?.id);
+    if (id) return id;
   }
-  // fallback（devで稀に ctx が崩れた時の保険）
-  return getIdFromUrl(req);
+  // 2) ctx (念のため)
+  const id2 = parseId(ctx?.id);
+  if (id2) return id2;
+
+  // 3) URL から拾う（これが効くケースがある）
+  const id3 = getIdFromUrl(req);
+  if (id3) return id3;
+
+  return null;
 }
 
-export async function GET(req: Request, ctx: RouteCtx) {
-  const supabase = getSupabaseAdmin();
-  const id = await getId(req, ctx);
+export async function GET(req: NextRequest, context: RouteCtx) {
+  const id = await getId(req, null, context?.params);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAdmin
     .from("cat_meals")
-    .select("id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g")
+    .select("id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,cat_foods(food_name)")
     .eq("id", id)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json(data);
+
+  return NextResponse.json({
+    id: (data as any).id,
+    dt: (data as any).dt,
+    food_id: (data as any).food_id,
+    grams: (data as any).grams,
+    kcal: (data as any).kcal,
+    note: (data as any).note,
+    kcal_per_g_snapshot: (data as any).kcal_per_g_snapshot ?? null,
+    leftover_g: (data as any).leftover_g ?? null,
+    food_name: (data as any)?.cat_foods?.[0]?.food_name ?? null,
+  });
 }
 
-export async function PATCH(req: Request, ctx: RouteCtx) {
-  const supabase = getSupabaseAdmin();
-  const id = await getId(req, ctx);
+export async function PATCH(req: NextRequest, context: RouteCtx) {
+  const id = await getId(req, null, context?.params);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const body = await req.json().catch(() => ({} as any));
+  const body = await req.json();
 
   const patch: any = {};
-
   if (body.dt != null) patch.dt = String(body.dt);
-  if (body.grams != null) patch.grams = Number(body.grams);
-  if (body.kcal != null) patch.kcal = Number(body.kcal);
+  if (body.food_id != null && body.food_id !== "") patch.food_id = Number(body.food_id);
+  if (body.grams != null && body.grams !== "") patch.grams = Number(body.grams);
+  if (body.kcal != null && body.kcal !== "") patch.kcal = Number(body.kcal);
   if (body.note !== undefined) patch.note = body.note == null ? null : String(body.note);
-  if (body.leftover_g != null) patch.leftover_g = Number(body.leftover_g);
+  if (body.kcal_per_g_snapshot !== undefined)
+    patch.kcal_per_g_snapshot = body.kcal_per_g_snapshot == null ? null : Number(body.kcal_per_g_snapshot);
+  if (body.leftover_g !== undefined) patch.leftover_g = body.leftover_g == null ? null : Number(body.leftover_g);
 
-  // food_id を変えるなら snapshot も必ず更新
-  if (body.food_id != null && body.food_id !== "") {
-    const newFoodId = Number(body.food_id);
-    patch.food_id = newFoodId;
-
-    const { data: food, error: foodErr } = await supabase
-      .from("cat_foods")
-      .select("kcal_per_g")
-      .eq("id", newFoodId)
-      .single();
-
-    if (foodErr) return NextResponse.json({ error: foodErr.message }, { status: 500 });
-
-    const snap = Number(food?.kcal_per_g);
-    if (!Number.isFinite(snap)) {
-      return NextResponse.json({ error: "kcal_per_g_snapshot is invalid (food kcal_per_g missing)" }, { status: 500 });
-    }
-    patch.kcal_per_g_snapshot = snap;
-  }
-
-  const { error } = await supabase.from("cat_meals").update(patch).eq("id", id);
+  const { error } = await supabaseAdmin.from("cat_meals").update(patch).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }
 
-export async function DELETE(req: Request, ctx: RouteCtx) {
-  const supabase = getSupabaseAdmin();
-  const id = await getId(req, ctx);
+export async function DELETE(req: NextRequest, context: RouteCtx) {
+  const id = await getId(req, null, context?.params);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const { error } = await supabase.from("cat_meals").delete().eq("id", id);
+  const { error } = await supabaseAdmin.from("cat_meals").delete().eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
