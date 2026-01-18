@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { checkPin } from "../../_pin";
 
 export const dynamic = "force-dynamic";
+
+type CatFoodsJoin =
+  | { food_name?: string | null; name?: string | null }
+  | { food_name?: string | null; name?: string | null }[]
+  | null
+  | undefined;
 
 type Row = {
   id: number;
@@ -12,15 +19,27 @@ type Row = {
   note: string | null;
   kcal_per_g_snapshot?: number | null;
   leftover_g?: number | null;
-  // Supabase の join は配列で返ることがある
-  cat_foods?: { food_name: string | null }[] | null;
+  cat_foods?: CatFoodsJoin;
 };
 
+function pickFoodName(cat_foods: CatFoodsJoin): string | null {
+  if (!cat_foods) return null;
+  if (Array.isArray(cat_foods)) {
+    const v = cat_foods[0]?.food_name ?? cat_foods[0]?.name ?? null;
+    return v == null ? null : String(v);
+  }
+  const v = cat_foods.food_name ?? cat_foods.name ?? null;
+  return v == null ? null : String(v);
+}
+
 export async function GET(req: Request) {
+  if (!checkPin(req)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
   const supabase = getSupabaseAdmin();
 
   const url = new URL(req.url);
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20")));
+  const limitRaw = Number(url.searchParams.get("limit") ?? "20");
+  const limit = Math.min(100, Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 20));
 
   const { data, error } = await supabase
     .from("cat_meals")
@@ -28,17 +47,15 @@ export async function GET(req: Request) {
     .order("dt", { ascending: false })
     .limit(limit);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (Array.isArray(data) ? (data as unknown as Row[]) : []) as Row[];
+  const rows = (data ?? []) as unknown as Row[];
 
   const out = rows.map((r) => ({
     id: r.id,
     dt: r.dt,
     food_id: r.food_id,
-    food_name: r.cat_foods?.[0]?.food_name ?? null,
+    food_name: pickFoodName(r.cat_foods) ?? null,
     grams: r.grams,
     kcal: r.kcal,
     note: r.note,

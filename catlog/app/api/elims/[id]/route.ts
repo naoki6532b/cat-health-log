@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { checkPin } from "../../_pin";
 
 function getIdFromUrl(req: Request): number | null {
   try {

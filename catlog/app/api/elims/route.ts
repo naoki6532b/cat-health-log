@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "./_pin";
+import { checkPin } from "../_pin";
 
 export async function GET(req: Request) {
   const pinRes = checkPin(req);
