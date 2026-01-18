@@ -36,8 +36,13 @@ async function getId(req: Request, ctx?: RouteCtx): Promise<number | null> {
   return getIdFromUrl(req);
 }
 
+type WeightUpdate = {
+  dt?: string;          // ← null を消す
+  weight_kg?: number;
+  memo?: string | null; // memo は null OK
+};
+
 export async function PATCH(req: NextRequest, ctx: RouteCtx) {
-  // ✅ checkPin は「NGならResponse / OKならnull」
   const pinRes = checkPin(req);
   if (pinRes) return pinRes;
 
@@ -45,59 +50,31 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
     const id = await getId(req, ctx);
     if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    const body = await req.json().catch(() => null);
+    const body = (await req.json().catch(() => null)) as any;
     if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
 
-    const patch: Record<string, any> = {};
+    const patch: WeightUpdate = {};
 
-    if (body.dt !== undefined) patch.dt = body.dt;
-    if (body.stool !== undefined) patch.stool = body.stool;
-    if (body.urine !== undefined) patch.urine = body.urine;
-
-    if (body.urine_ml !== undefined) {
-      patch.urine_ml =
-        body.urine_ml === null || String(body.urine_ml).trim() === ""
-          ? null
-          : Number(body.urine_ml);
+  
+    if (body.weight_kg !== undefined) {
+      const w = Number(body.weight_kg);
+      if (!Number.isFinite(w) || w <= 0) {
+        return NextResponse.json({ error: "weight_kg must be positive number" }, { status: 400 });
+      }
+      patch.weight_kg = w;
     }
 
-    if (body.amount !== undefined) {
-      patch.amount =
-        body.amount === null || String(body.amount).trim() === ""
-          ? null
-          : Number(body.amount);
-    }
-
-    if (body.note !== undefined) {
-      patch.note = body.note === "" ? null : body.note;
-    }
-
-    if (body.vomit !== undefined) patch.vomit = body.vomit === true;
-
-    if (body.kind !== undefined) {
-      patch.kind =
-        body.kind === null || String(body.kind).trim() === ""
-          ? null
-          : String(body.kind);
-    }
-
-    if (body.score !== undefined) {
-      patch.score =
-        body.score === null || String(body.score).trim() === ""
-          ? null
-          : Number(body.score);
+    if (body.memo !== undefined) {
+      const v = String(body.memo ?? "").trim();
+      patch.memo = v === "" ? null : v;
     }
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "No fields to update" }, { status: 400 });
     }
 
-    // ✅ 型ファイルが無いので any 逃げ（波線対策）
-    const supabase = getSupabaseAdmin() as any;
-    const { error } = await supabase
-      .from("cat_elims")
-      .update(patch as any)
-      .eq("id", id);
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("cat_weights").update(patch).eq("id", id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });
@@ -114,9 +91,8 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
     const id = await getId(req, ctx);
     if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    // ✅ 型ファイルが無いので any 逃げ（波線対策）
-    const supabase = getSupabaseAdmin() as any;
-    const { error } = await supabase.from("cat_elims").delete().eq("id", id);
+    const supabase = getSupabaseAdmin();
+    const { error } = await supabase.from("cat_weights").delete().eq("id", id);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ ok: true });

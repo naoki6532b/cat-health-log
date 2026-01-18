@@ -11,15 +11,12 @@ function toDatetimeLocalValue(d: Date) {
   )}:${pad(d.getMinutes())}`;
 }
 
-type Kind = "stool" | "urine" | "both";
-
-export default function ElimEntryPage() {
+export default function WeightEntryPage() {
   const defaultDtLocal = useMemo(() => toDatetimeLocalValue(new Date()), []);
   const [dtLocal, setDtLocal] = useState(defaultDtLocal);
 
-  const [kind, setKind] = useState<Kind>("stool");
-  const [amount, setAmount] = useState<string>("");
-  const [note, setNote] = useState<string>("");
+  const [weight, setWeight] = useState<string>(""); // kg
+  const [memo, setMemo] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string>("");
@@ -27,40 +24,36 @@ export default function ElimEntryPage() {
   async function onSubmit() {
     setMsg("");
     setSaving(true);
+
     try {
-      // datetime-local はローカル時刻として Date に入る（日本のPCならJSTでOK）
       const dtIso = new Date(dtLocal).toISOString();
 
-      const payload: any = {
+      const w = Number(weight);
+      if (!Number.isFinite(w) || w <= 0) {
+        setMsg("ERROR: 体重は 0 より大きい数値で入力してね（例: 4.25）");
+        return;
+      }
+
+      const payload = {
         dt: dtIso,
-
-        // ★必須：DBが NOT NULL なので必ず送る
-        kind, // "stool" | "urine" | "both"
-
-        // 互換のため stool / urine も入れておく（API側で整合させてくれる）
-        stool: kind === "stool" || kind === "both" ? "うんち" : null,
-        urine: kind === "urine" || kind === "both" ? "おしっこ" : null,
-
-        note: note.trim() === "" ? null : note.trim(),
+        weight_kg: w,
+        memo: memo.trim() === "" ? null : memo.trim(),
       };
 
-      const n = amount.trim() === "" ? null : Number(amount);
-      if (n !== null && Number.isFinite(n)) payload.amount = n;
-
-      const res = await apiFetch("/api/elims", {
+      const res = await apiFetch("/api/weights", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text.slice(0, 400));
+        const text = await res.text().catch(() => "");
+        throw new Error(text.slice(0, 300) || `HTTP ${res.status}`);
       }
 
       setMsg("✅ 保存しました");
-      setNote("");
-      setAmount("");
+      setWeight("");
+      setMemo("");
     } catch (e: any) {
       setMsg(`ERROR: ${String(e?.message ?? e)}`);
     } finally {
@@ -70,7 +63,9 @@ export default function ElimEntryPage() {
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: 16 }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>排泄入力</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 12 }}>
+        体重入力
+      </h1>
 
       <div style={{ display: "grid", gap: 10 }}>
         <label>
@@ -84,25 +79,12 @@ export default function ElimEntryPage() {
         </label>
 
         <label>
-          種類
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value as Kind)}
-            style={{ width: "100%", padding: 10, marginTop: 6 }}
-          >
-            <option value="stool">うんち</option>
-            <option value="urine">おしっこ</option>
-            <option value="both">両方</option>
-          </select>
-        </label>
-
-        <label>
-          量（任意）
+          体重（kg）
           <input
-            inputMode="numeric"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="例: 5"
+            inputMode="decimal"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            placeholder="例: 4.25"
             style={{ width: "100%", padding: 10, marginTop: 6 }}
           />
         </label>
@@ -110,8 +92,8 @@ export default function ElimEntryPage() {
         <label>
           メモ（任意）
           <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
             rows={3}
             style={{
               width: "100%",
@@ -137,7 +119,7 @@ export default function ElimEntryPage() {
         {msg && <div style={{ whiteSpace: "pre-wrap" }}>{msg}</div>}
 
         <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-          <Link href="/elims">排泄一覧へ</Link>
+          <Link href="/weights">体重一覧へ</Link>
           <span> / </span>
           <Link href="/">トップへ</Link>
         </div>

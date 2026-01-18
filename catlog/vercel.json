@@ -1,0 +1,4 @@
+{
+  "installCommand": "cd catlog && npm ci",
+  "buildCommand": "cd catlog && npm run build"
+}

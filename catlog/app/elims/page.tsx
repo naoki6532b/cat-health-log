@@ -27,8 +27,12 @@ export default function ElimsPage() {
       throw new Error(t);
     }
 
-    const data = (await res.json()) as Daily[];
-    setRows(data ?? []);
+    const data = ((await res.json()) as Daily[]) ?? [];
+
+    // ✅ 追加：うんちもおしっこも 0 の日は表示しない
+    const filtered = data.filter((r) => (r.poop ?? 0) > 0 || (r.pee ?? 0) > 0);
+
+    setRows(filtered);
   };
 
   useEffect(() => {
@@ -50,7 +54,9 @@ export default function ElimsPage() {
     <main className="space-y-5">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">排泄 日別回数（うんち/おしっこ）</h1>
+          <h1 className="text-xl font-semibold tracking-tight">
+            排泄 日別回数（うんち/おしっこ）
+          </h1>
           <div className="mt-1 text-sm text-zinc-600">
             合計：うんち {totals.poop} 回 / おしっこ {totals.pee} 回（{days}日）
           </div>
@@ -66,7 +72,12 @@ export default function ElimsPage() {
             ログ編集
           </Link>
 
-          <button onClick={() => load().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))} className="navbtn">
+          <button
+            onClick={() =>
+              load().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))
+            }
+            className="navbtn"
+          >
             更新
           </button>
         </div>
@@ -79,7 +90,9 @@ export default function ElimsPage() {
             onClick={() => setDays(d as 7 | 14 | 30)}
             className={cls(
               "rounded-2xl border px-4 py-2 text-sm font-semibold shadow-sm transition",
-              days === d ? "bg-zinc-900 text-white" : "bg-white hover:bg-zinc-50"
+              days === d
+                ? "bg-zinc-900 text-white"
+                : "bg-white hover:bg-zinc-50"
             )}
           >
             {d}日
@@ -114,7 +127,9 @@ export default function ElimsPage() {
                 <span
                   className={cls(
                     "min-w-10 rounded-full px-3 py-1 text-center text-sm font-semibold",
-                    r.poop > 0 ? "bg-amber-100 text-amber-900" : "bg-zinc-100 text-zinc-500"
+                    r.poop > 0
+                      ? "bg-amber-100 text-amber-900"
+                      : "bg-zinc-100 text-zinc-500"
                   )}
                 >
                   {r.poop}
@@ -125,7 +140,9 @@ export default function ElimsPage() {
                 <span
                   className={cls(
                     "min-w-10 rounded-full px-3 py-1 text-center text-sm font-semibold",
-                    r.pee > 0 ? "bg-sky-100 text-sky-900" : "bg-zinc-100 text-zinc-500"
+                    r.pee > 0
+                      ? "bg-sky-100 text-sky-900"
+                      : "bg-zinc-100 text-zinc-500"
                   )}
                 >
                   {r.pee}
@@ -134,7 +151,11 @@ export default function ElimsPage() {
             </div>
           ))}
 
-          {rows.length === 0 && <div className="px-4 py-6 text-sm text-zinc-600">データがありません</div>}
+          {rows.length === 0 && (
+            <div className="px-4 py-6 text-sm text-zinc-600">
+              データがありません
+            </div>
+          )}
         </div>
       </div>
     </main>

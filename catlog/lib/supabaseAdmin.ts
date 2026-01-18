@@ -1,30 +1,36 @@
-// catlog/lib/supabaseAdmin.ts
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "./database.types";
 
-function mustGet(name: string, v: string | undefined) {
-  if (!v) throw new Error(`${name} is required.`);
-  return v;
-}
+let _admin: SupabaseClient<Database> | null = null;
 
-export function getSupabaseAdmin() {
-  // URL はどれかに入ってればOKにする
-  const url =
-    process.env.NEXT_PUBLIC_SUPABASE_URL ||
-    process.env.SUPABASE_URL ||
-    "";
+export function getSupabaseAdmin(): SupabaseClient<Database> {
+  if (_admin) return _admin;
 
-  // service role はこれ（タイポ注意）
-  const serviceRole =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    "";
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-  mustGet("supabaseUrl", url);
-  mustGet("SUPABASE_SERVICE_ROLE_KEY", serviceRole);
+  // build時・型解析時に即死させない
+  if (!url || !key) {
+    throw new Error(
+      "Missing Supabase admin env (NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY)"
+    );
+  }
 
-  return createClient(url, serviceRole, {
-    auth: { persistSession: false },
+  _admin = createClient<Database>(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  return _admin;
 }
 
-// 既存コード互換用（もし他ファイルが supabaseAdmin を import しててもビルド落ちないように）
-export const supabaseAdmin = getSupabaseAdmin();
+/**
+ * ★ 重要
+ * import時に初期化しないための遅延Proxy
+ * build時に評価されても落ちなくなる
+ */
+export const supabaseAdmin: SupabaseClient<Database> = new Proxy({} as any, {
+  get(_target, prop) {
+    const client = getSupabaseAdmin();
+    return (client as any)[prop];
+  },
+});

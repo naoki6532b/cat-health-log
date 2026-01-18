@@ -1,6 +1,14 @@
 import "./globals.css";
 import Link from "next/link";
-import { Home, Utensils, Droplets, ListChecks, Database, BarChart3 } from "lucide-react";
+import {
+  Home,
+  Utensils,
+  Droplets,
+  ListChecks,
+  Database,
+  BarChart3,
+  Scale,
+} from "lucide-react";
 
 export const metadata = {
   title: "猫健康ログ",
@@ -14,6 +22,10 @@ const nav = [
   { href: "/elims", label: "排泄一覧", icon: ListChecks },
   { href: "/foods", label: "フード", icon: Database },
   { href: "/summary", label: "集計", icon: BarChart3 },
+
+  // ✅ 追加：体重（入力）と体重一覧
+  { href: "/entry/weight", label: "体重", icon: Scale },
+  { href: "/weights", label: "体重一覧", icon: ListChecks },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -47,7 +59,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Mobile bottom nav */}
         <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/65 sm:hidden">
           <div className="mx-auto max-w-5xl px-3 py-2">
-            <div className="grid grid-cols-6 gap-2">
+            {/* ✅ 7 → 8 に変更 */}
+            <div className="grid grid-cols-8 gap-2">
               {nav.map((n) => {
                 const Icon = n.icon;
                 return (

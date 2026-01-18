@@ -1,5 +1,12 @@
 import Link from "next/link";
-import { Utensils, Droplets, Database, BarChart3, ChevronRight } from "lucide-react";
+import {
+  Utensils,
+  Droplets,
+  Database,
+  BarChart3,
+  ChevronRight,
+  Scale,
+} from "lucide-react";
 
 const cards = [
   {
@@ -13,6 +20,12 @@ const cards = [
     title: "排泄入力",
     desc: "うんち/おしっこ の記録",
     icon: Droplets,
+  },
+  {
+    href: "/entry/weight",
+    title: "体重入力",
+    desc: "体重(kg)を記録（長期推移に強い）",
+    icon: Scale,
   },
   {
     href: "/foods",
@@ -55,7 +68,10 @@ export default function HomePage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <div className="text-base font-semibold">{c.title}</div>
-                    <ChevronRight className="ml-auto opacity-40 transition group-hover:translate-x-0.5" size={18} />
+                    <ChevronRight
+                      className="ml-auto opacity-40 transition group-hover:translate-x-0.5"
+                      size={18}
+                    />
                   </div>
                   <div className="mt-1 text-sm text-zinc-600">{c.desc}</div>
                 </div>
@@ -70,6 +86,7 @@ export default function HomePage() {
         <ul className="mt-2 list-disc pl-5 text-sm text-zinc-700">
           <li>入力を間違えたら「全一覧」or「直近ログ」から修正できます</li>
           <li>スマホは下部タブから片手で移動できます</li>
+          <li>体重は週1〜でもOK。7日移動平均で長期の変化が見やすくなります</li>
         </ul>
       </div>
     </main>

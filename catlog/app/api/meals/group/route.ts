@@ -10,6 +10,12 @@ function pickFoodName(cat_foods: any): string | null {
   return cat_foods.food_name ?? null;
 }
 
+function parseId(v: string | null) {
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function calcNet(r: any) {
   const grams = Number(r.grams ?? 0);
   const kcal = Number(r.kcal ?? 0);
@@ -29,17 +35,34 @@ export async function GET(req: Request) {
   if (pinRes) return pinRes;
 
   const url = new URL(req.url);
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20")));
+  const anchor_id = parseId(url.searchParams.get("anchor_id"));
+  if (!anchor_id) {
+    return NextResponse.json({ error: "anchor_id is required" }, { status: 400 });
+  }
 
   const supabase = getSupabaseAdmin();
+
+  const { data: anchor, error: aErr } = await supabase
+    .from("cat_meals")
+    .select("id,meal_group_id")
+    .eq("id", anchor_id)
+    .single();
+
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+
+  const groupId = (anchor as any)?.meal_group_id;
+  if (!groupId) {
+    return NextResponse.json({ error: "meal_group_id is missing" }, { status: 500 });
+  }
 
   const { data, error } = await supabase
     .from("cat_meals")
     .select(
       "id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)"
     )
-    .order("dt", { ascending: false })
-    .limit(limit);
+    .eq("meal_group_id", groupId)
+    .order("dt", { ascending: true })
+    .order("id", { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

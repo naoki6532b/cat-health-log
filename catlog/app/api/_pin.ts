@@ -1,28 +1,24 @@
-import type { NextRequest } from "next/server";
-
-const HEADER = "x-catlog-pin";
+import { NextResponse } from "next/server";
 
 /**
- * 期待PINはサーバー側環境変数から読む（VercelのEnvironment Variables）
- * - CATLOG_PIN を推奨
- * 互換で NEXT_PUBLIC_CATLOG_PIN も許容（本当はサーバー専用が安全）
+ * PIN が正しければ null を返す
+ * PIN が違えば 403 Response を返す
+ *
+ * 重要:
+ * - Vercel側で CATLOG_PIN と NEXT_PUBLIC_CATLOG_PIN がズレる事故が起きやすいので
+ *   「どっちかに一致したらOK」にしておく。
  */
-function expectedPin(): string {
-  return (
-    process.env.CATLOG_PIN ??
-    process.env.NEXT_PUBLIC_CATLOG_PIN ??
-    ""
-  ).trim();
-}
+export function checkPin(req: Request) {
+  const candidates = [
+    process.env.CATLOG_PIN ?? "",
+    process.env.NEXT_PUBLIC_CATLOG_PIN ?? "",
+  ].filter(Boolean);
 
-/**
- * API保護：ヘッダ x-catlog-pin が一致していればOK
- * PIN未設定（空）の場合は開発を楽にするため “通す”
- */
-export function checkPin(req: Request | NextRequest): boolean {
-  const exp = expectedPin();
-  if (!exp) return true;
+  // PIN 未設定ならチェックしない（開発用）
+  if (candidates.length === 0) return null;
 
-  const got = (req.headers.get(HEADER) ?? "").trim();
-  return got === exp;
+  const got = req.headers.get("x-catlog-pin") ?? "";
+  if (candidates.includes(got)) return null;
+
+  return NextResponse.json({ error: "forbidden" }, { status: 403 });
 }
