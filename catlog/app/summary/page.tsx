@@ -22,7 +22,7 @@ type MealRow = {
 type WeightRow = {
   id: number;
   dt: string; // ISO
-  weight_kg: number;
+  weight_kg: number | null; // ← null混入の可能性があるので許容
   memo: string | null;
 };
 
@@ -176,21 +176,23 @@ function calcNet(m: MealRow) {
 
   // 自前計算
   const net_grams =
-    net_grams_from_api != null ? net_grams_from_api : Math.max(0, grams - leftover_g);
+    net_grams_from_api != null
+      ? net_grams_from_api
+      : Math.max(0, grams - leftover_g);
 
   const leftover_kcal =
     leftover_kcal_from_api != null
       ? leftover_kcal_from_api
       : Number.isFinite(snap)
-        ? Math.max(0, leftover_g * snap)
-        : 0;
+      ? Math.max(0, leftover_g * snap)
+      : 0;
 
   const net_kcal =
     net_kcal_from_api != null
       ? net_kcal_from_api
       : Number.isFinite(snap)
-        ? Math.max(0, kcal - leftover_g * snap)
-        : kcal;
+      ? Math.max(0, kcal - leftover_g * snap)
+      : kcal;
 
   return {
     net_grams,
@@ -205,7 +207,9 @@ export default function SummaryPage() {
   const [msg, setMsg] = useState("");
 
   // 範囲UI
-  const [preset, setPreset] = useState<"7" | "30" | "90" | "all" | "custom">("30");
+  const [preset, setPreset] = useState<"7" | "30" | "90" | "all" | "custom">(
+    "30"
+  );
   const [fromDate, setFromDate] = useState<string>(() => {
     const d = new Date();
     d.setDate(d.getDate() - 29);
@@ -251,7 +255,8 @@ export default function SummaryPage() {
     const end = new Date(today);
     end.setHours(23, 59, 59, 999);
 
-    if (preset === "all") return { from: null as Date | null, to: null as Date | null };
+    if (preset === "all")
+      return { from: null as Date | null, to: null as Date | null };
 
     if (preset === "custom") {
       const f = new Date(fromDate + "T00:00:00");
@@ -292,7 +297,12 @@ export default function SummaryPage() {
   // ★合計は net_kcal（実食）で計算
   const grouped15 = useMemo(() => {
     const r = [...rowsInRange].sort((a, b) => a.dt.localeCompare(b.dt));
-    const groups: { start: string; items: MealRow[]; totalNetKcal: number; totalLeftoverKcal: number }[] = [];
+    const groups: {
+      start: string;
+      items: MealRow[];
+      totalNetKcal: number;
+      totalLeftoverKcal: number;
+    }[] = [];
     const toMs = (iso: string) => new Date(iso).getTime();
 
     for (const item of r) {
@@ -332,12 +342,25 @@ export default function SummaryPage() {
   const daily = useMemo(() => {
     const map = new Map<
       string,
-      { date: string; totalNetKcal: number; totalLeftoverKcal: number; totalG: number; totalNetG: number }
+      {
+        date: string;
+        totalNetKcal: number;
+        totalLeftoverKcal: number;
+        totalG: number;
+        totalNetG: number;
+      }
     >();
 
     for (const r of rowsInRange) {
       const d = toDateKey(r.dt);
-      const cur = map.get(d) ?? { date: d, totalNetKcal: 0, totalLeftoverKcal: 0, totalG: 0, totalNetG: 0 };
+      const cur =
+        map.get(d) ?? {
+          date: d,
+          totalNetKcal: 0,
+          totalLeftoverKcal: 0,
+          totalG: 0,
+          totalNetG: 0,
+        };
 
       const { net_kcal, leftover_kcal, net_grams } = calcNet(r);
 
@@ -349,16 +372,24 @@ export default function SummaryPage() {
       map.set(d, cur);
     }
 
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+    return Array.from(map.values()).sort((a, b) =>
+      a.date.localeCompare(b.date)
+    );
   }, [rowsInRange]);
 
   // ✅ 日別体重（同日に複数あるなら「その日の最新」を採用）
+  // ★0kg落ち対策：kgがnull/空/NaN/0/負なら採用しない
   const dailyWeightMap = useMemo(() => {
     const map = new Map<string, { date: string; weightKg: number; dt: string }>();
     const sorted = [...weightsInRange].sort((a, b) => a.dt.localeCompare(b.dt));
+
     for (const w of sorted) {
       const d = toDateKey(w.dt);
-      map.set(d, { date: d, weightKg: Number(w.weight_kg), dt: w.dt });
+
+      const kg = Number((w as any).weight_kg);
+      if (!Number.isFinite(kg) || kg <= 0) continue;
+
+      map.set(d, { date: d, weightKg: kg, dt: w.dt });
     }
     return map;
   }, [weightsInRange]);
@@ -377,7 +408,12 @@ export default function SummaryPage() {
     const base = dates.map((date, i) => {
       const kcal = kcalMap.get(date) ?? null;
       const leftover = leftoverMap.get(date) ?? null;
-      const w = dailyWeightMap.get(date)?.weightKg ?? null;
+
+      const rawW = dailyWeightMap.get(date)?.weightKg;
+      const w =
+        typeof rawW === "number" && Number.isFinite(rawW) && rawW > 0
+          ? rawW
+          : null;
 
       const label = dayLabel(date, i === 0, i === 0 ? null : dates[i - 1]);
 
@@ -398,7 +434,12 @@ export default function SummaryPage() {
     let cancelled = false;
 
     const draw = async () => {
-      if (!comboChartRef.current || !dailyChartRef.current || !groupChartRef.current) return;
+      if (
+        !comboChartRef.current ||
+        !dailyChartRef.current ||
+        !groupChartRef.current
+      )
+        return;
       if (rowsInRange.length === 0 && weightsInRange.length === 0) return;
 
       await loadGoogleCharts();
@@ -411,7 +452,6 @@ export default function SummaryPage() {
         if (cancelled) return;
 
         // ========= 体重×kcal（2軸 + 体重7日平均） =========
-        // ★kcalは net（実食）を使用
         const comboData = new google.visualization.DataTable();
         comboData.addColumn("string", "日付");
         comboData.addColumn("number", "実食kcal");
@@ -423,11 +463,15 @@ export default function SummaryPage() {
             d.label,
             d.kcal === null ? null : Number(d.kcal.toFixed(1)),
             d.weightKg === null ? null : Number(Number(d.weightKg).toFixed(2)),
-            d.weightAvg7 === null ? null : Number(Number(d.weightAvg7).toFixed(2)),
+            d.weightAvg7 === null
+              ? null
+              : Number(Number(d.weightAvg7).toFixed(2)),
           ])
         );
 
-        const comboChart = new google.visualization.ComboChart(comboChartRef.current);
+        const comboChart = new google.visualization.ComboChart(
+          comboChartRef.current
+        );
         comboChart.draw(comboData, {
           title: "体重 × 実食カロリー（体重は7日移動平均付き）",
           height: 380,
@@ -459,7 +503,9 @@ export default function SummaryPage() {
           daily.map((d, i) => [labels[i], Number(d.totalNetKcal.toFixed(1))])
         );
 
-        const dailyChart = new google.visualization.LineChart(dailyChartRef.current);
+        const dailyChart = new google.visualization.LineChart(
+          dailyChartRef.current
+        );
         dailyChart.draw(dailyData, {
           title: "日別 実食カロリー（お残し減算済み）",
           legend: { position: "none" },
@@ -473,19 +519,23 @@ export default function SummaryPage() {
         gData.addColumn("string", "開始");
         gData.addColumn("number", "実食kcal");
 
-        const sortedGroups = [...grouped15].sort((a, b) => a.start.localeCompare(b.start));
+        const sortedGroups = [...grouped15].sort((a, b) =>
+          a.start.localeCompare(b.start)
+        );
         const labels15 = sortedGroups.map((g, i) =>
-          labelForMealGroupStart(g.start, i === 0 ? null : sortedGroups[i - 1].start)
+          labelForMealGroupStart(
+            g.start,
+            i === 0 ? null : sortedGroups[i - 1].start
+          )
         );
 
         gData.addRows(
-          sortedGroups.map((g, i) => [
-            labels15[i],
-            Number(g.totalNetKcal.toFixed(1)),
-          ])
+          sortedGroups.map((g, i) => [labels15[i], Number(g.totalNetKcal.toFixed(1))])
         );
 
-        const groupChart = new google.visualization.ColumnChart(groupChartRef.current);
+        const groupChart = new google.visualization.ColumnChart(
+          groupChartRef.current
+        );
         groupChart.draw(gData, {
           title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
           legend: { position: "none" },
@@ -513,7 +563,11 @@ export default function SummaryPage() {
       {msg && <div style={{ color: "red" }}>{msg}</div>}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-        <button onClick={() => load().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}>
+        <button
+          onClick={() =>
+            load().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))
+          }
+        >
           再読込
         </button>
 
@@ -526,9 +580,17 @@ export default function SummaryPage() {
 
         {preset === "custom" && (
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
             <span>〜</span>
-            <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            <input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
           </div>
         )}
       </div>
@@ -538,54 +600,63 @@ export default function SummaryPage() {
       </div>
 
       <h3 style={{ marginTop: 16 }}>体重 × 実食kcal（体重7日移動平均つき）</h3>
-      <div ref={comboChartRef} style={{ width: "100%", minHeight: 380, border: "1px solid #ddd" }} />
+      <div
+        ref={comboChartRef}
+        style={{ width: "100%", minHeight: 380, border: "1px solid #ddd" }}
+      />
 
       <h3 style={{ marginTop: 16 }}>グラフ</h3>
-      <div ref={dailyChartRef} style={{ width: "100%", minHeight: 360, border: "1px solid #ddd" }} />
+      <div
+        ref={dailyChartRef}
+        style={{ width: "100%", minHeight: 360, border: "1px solid #ddd" }}
+      />
       <div style={{ height: 12 }} />
-      <div ref={groupChartRef} style={{ width: "100%", minHeight: 360, border: "1px solid #ddd" }} />
+      <div
+        ref={groupChartRef}
+        style={{ width: "100%", minHeight: 360, border: "1px solid #ddd" }}
+      />
 
       <h3 style={{ marginTop: 16 }}>日別合計（お残し減算）</h3>
-     <h3 style={{ marginTop: 16 }}>日別合計（お残し減算）</h3>
 
-<table
-  border={1}
-  cellPadding={6}
-  style={{
-    width: "100%",
-    textAlign: "center",      // ★ヘッダも本文も全部センター
-    borderCollapse: "collapse",
-  }}
->
-  <thead>
-    <tr>
-      <th style={{ textAlign: "center" }}>日付</th>
-      <th style={{ textAlign: "center" }}>置いた合計g</th>
-      <th style={{ textAlign: "center" }}>実食合計g</th>
-      <th style={{ textAlign: "center" }}>お残しkcal</th>
-      <th style={{ textAlign: "center" }}>実食kcal</th>
-    </tr>
-  </thead>
-  <tbody>
-    {daily.map((d) => (
-      <tr key={d.date}>
-        <td style={{ textAlign: "center" }}>{d.date}</td>
-        <td style={{ textAlign: "center" }}>{d.totalG.toFixed(1)}</td>
-        <td style={{ textAlign: "center" }}>{d.totalNetG.toFixed(1)}</td>
-        <td style={{ textAlign: "center" }}>{d.totalLeftoverKcal.toFixed(1)}</td>
-        <td style={{ textAlign: "center" }}>{d.totalNetKcal.toFixed(1)}</td>
-      </tr>
-    ))}
-    {daily.length === 0 && (
-      <tr>
-        <td colSpan={5} style={{ textAlign: "center" }}>
-          データがありません
-        </td>
-      </tr>
-    )}
-  </tbody>
-</table>
-
+      <table
+        border={1}
+        cellPadding={6}
+        style={{
+          width: "100%",
+          textAlign: "center",
+          borderCollapse: "collapse",
+        }}
+      >
+        <thead>
+          <tr>
+            <th style={{ textAlign: "center" }}>日付</th>
+            <th style={{ textAlign: "center" }}>置いた合計g</th>
+            <th style={{ textAlign: "center" }}>実食合計g</th>
+            <th style={{ textAlign: "center" }}>お残しkcal</th>
+            <th style={{ textAlign: "center" }}>実食kcal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {daily.map((d) => (
+            <tr key={d.date}>
+              <td style={{ textAlign: "center" }}>{d.date}</td>
+              <td style={{ textAlign: "center" }}>{d.totalG.toFixed(1)}</td>
+              <td style={{ textAlign: "center" }}>{d.totalNetG.toFixed(1)}</td>
+              <td style={{ textAlign: "center" }}>
+                {d.totalLeftoverKcal.toFixed(1)}
+              </td>
+              <td style={{ textAlign: "center" }}>{d.totalNetKcal.toFixed(1)}</td>
+            </tr>
+          ))}
+          {daily.length === 0 && (
+            <tr>
+              <td colSpan={5} style={{ textAlign: "center" }}>
+                データがありません
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </main>
   );
 }
