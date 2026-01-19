@@ -16,7 +16,8 @@ html, body {
 }
 
 body {
-  font-family: "Meiryo", "Segoe UI", system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-family: "Meiryo", "Segoe UI", system-ui, -apple-system,
+    "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -59,4 +60,121 @@ body {
   @apply w-full rounded-xl border px-3 py-2 text-sm outline-none;
   border-color: var(--line);
   background: rgba(255,255,255,0.9);
+}
+
+/* ==============================
+   日別合計（kcal）テーブル 高級UI化
+   ============================== */
+
+.daily-kcal-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+/* ヘッダー（アプリ配色に完全統一） */
+.daily-kcal-table thead th {
+  background: linear-gradient(135deg, var(--head), #eaf6fc);
+  color: #234a66;
+  font-weight: 600;
+  padding: 10px 8px;
+  border-bottom: 1px solid #cfd8dc;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+/* 丸み（ヘッダー角） */
+.daily-kcal-table thead th:first-child {
+  border-top-left-radius: 14px;
+}
+.daily-kcal-table thead th:last-child {
+  border-top-right-radius: 14px;
+}
+
+/* ボディ行 */
+.daily-kcal-table tbody tr {
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+/* 交互ストライプ */
+.daily-kcal-table tbody tr:nth-child(even) {
+  background-color: #f6f9fc;
+}
+
+/* ホバーで浮く */
+.daily-kcal-table tbody tr:hover {
+  background-color: #e3f2fd;
+  transform: scale(1.003);
+}
+
+/* セル */
+.daily-kcal-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #e0e6ed;
+  text-align: center;
+  color: #263238;
+}
+
+/* 日付列を少し強調 */
+.daily-kcal-table td:first-child {
+  font-weight: 600;
+  color: #37474f;
+}
+
+/* 給餌 kcal */
+.daily-kcal-table td:nth-child(2) {
+  color: #1565c0;
+}
+
+/* お残し kcal */
+.daily-kcal-table td:nth-child(3) {
+  color: #c62828;
+}
+
+/* 実食 kcal（最重要） */
+.daily-kcal-table td:nth-child(4) {
+  font-weight: 700;
+  color: #2e7d32;
+}
+
+/* 最終行の下線を消す */
+.daily-kcal-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* スマホ対応（カードUI化） */
+@media (max-width: 640px) {
+  .daily-kcal-table {
+    font-size: 0.85rem;
+  }
+
+  .daily-kcal-table thead {
+    display: none;
+  }
+
+  .daily-kcal-table tr {
+    display: block;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .daily-kcal-table td {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e0e6ed;
+  }
+
+  .daily-kcal-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #607d8b;
+  }
 }
