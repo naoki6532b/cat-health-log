@@ -259,7 +259,6 @@ function presetToDays(preset: "7" | "30" | "90" | "all" | "custom") {
   if (preset === "30") return 30;
   if (preset === "90") return 90;
   if (preset === "all") return 3650;
-  // custom は from/to で取るので days は使わないが、念のため
   return 365;
 }
 
@@ -280,9 +279,9 @@ export default function SummaryPage() {
   });
   const [toDate, setToDate] = useState<string>(() => isoDate(new Date()));
 
-  const weightChartRef = useRef<HTMLDivElement | null>(null);
-  const dailyChartRef = useRef<HTMLDivElement | null>(null);
   const groupChartRef = useRef<HTMLDivElement | null>(null);
+  const dailyChartRef = useRef<HTMLDivElement | null>(null);
+  const weightChartRef = useRef<HTMLDivElement | null>(null);
 
   /** 取得（プリセット/期間指定に応じてできるだけ小さく取る＝軽量化） */
   const load = async (p = preset, f = fromDate, t = toDate) => {
@@ -291,7 +290,9 @@ export default function SummaryPage() {
     const days = presetToDays(p);
 
     const mealsUrl =
-      p === "custom" ? `/api/summary/meals?from=${f}&to=${t}` : `/api/summary/meals?days=${days}`;
+      p === "custom"
+        ? `/api/summary/meals?from=${f}&to=${t}`
+        : `/api/summary/meals?days=${days}`;
 
     const weightsUrl =
       p === "custom" ? `/api/weights?from=${f}&to=${t}` : `/api/weights?days=${days}`;
@@ -342,7 +343,7 @@ export default function SummaryPage() {
     return { from: f, to: end };
   }, [preset, fromDate, toDate]);
 
-  // 15分以内を1回としてグルーピング（APIが絞られていればここも軽い）
+  // 15分以内を1回としてグルーピング
   const grouped15 = useMemo(() => {
     const r = [...rows].sort((a, b) => a.dt.localeCompare(b.dt));
     const groups: {
@@ -385,7 +386,7 @@ export default function SummaryPage() {
     return groups;
   }, [rows]);
 
-  // 日別合計（APIが絞られていれば軽い）
+  // 日別合計
   const daily = useMemo(() => {
     const map = new Map<
       string,
@@ -426,7 +427,7 @@ export default function SummaryPage() {
 
   /**
    * ✅ 日別体重：同日に複数あるなら「その日の最新」を採用
-   * ✅ 0/null/NaN/負は採用しない（ゼロ落ち対策）
+   * ✅ 0/null/NaN/負は採用しない
    */
   const dailyWeightMap = useMemo(() => {
     const map = new Map<string, { date: string; weightKg: number; dt: string }>();
@@ -442,11 +443,10 @@ export default function SummaryPage() {
   }, [weights]);
 
   /**
-   * ✅ 体重系列：欠測日は null（点なし）
+   * ✅ 体重系列：欠測日は null
    * ✅ 前後に計測があれば interpolateNulls で線がつながる
    */
   const weightSeriesForChart = useMemo(() => {
-    // range が null（all）の場合も最大3650日に制限
     let f: Date;
     let t: Date;
 
@@ -499,7 +499,7 @@ export default function SummaryPage() {
     let cancelled = false;
 
     const draw = async () => {
-      if (!weightChartRef.current || !dailyChartRef.current || !groupChartRef.current) return;
+      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current) return;
       if (rows.length === 0 && weights.length === 0) return;
 
       await ensureChartsReady();
@@ -507,7 +507,7 @@ export default function SummaryPage() {
 
       const google = window.google;
 
-      // ✅ データラベルを「棒/線に近づける」設定（今の約半分）
+      // ✅ データラベルを「棒/線に近づける」
       const baseChartStyle = {
         backgroundColor: "#f5f6f8",
         chartArea: {
@@ -519,43 +519,49 @@ export default function SummaryPage() {
         },
         annotations: {
           alwaysOutside: false,
-          stem: { length: 5 }, // ★近い
+          stem: { length: 5 },
           textStyle: { fontSize: 10, color: "#333", bold: false },
         },
         hAxis: { slantedText: false },
       } as const;
 
-      // ===== 体重（折れ線 + 7回平均） =====
+      // ===== 15分ルール：棒 =====
       {
-        const wData = new google.visualization.DataTable();
-        wData.addColumn("string", "日付");
-        wData.addColumn("number", "体重(kg)");
-        wData.addColumn({ type: "number", role: "annotation" });
-        wData.addColumn("number", "体重(7回平均)");
-        wData.addColumn({ type: "number", role: "annotation" });
+        const gData = new google.visualization.DataTable();
+        gData.addColumn("string", "開始");
+        gData.addColumn("number", "実食kcal");
+        gData.addColumn({ type: "number", role: "annotation" });
 
-        wData.addRows(
-          weightSeriesForChart.map((d: any) => [
-            d.label,
-            d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
-            d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
-            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
-            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
-          ])
+        const sortedGroups = [...grouped15].sort((a, b) =>
+          a.start.localeCompare(b.start)
         );
 
-        const wChart = new google.visualization.LineChart(weightChartRef.current);
-        wChart.draw(wData, {
+        const labels15 = sortedGroups.map((g, i) =>
+          labelForMealGroupStart(
+            g.start,
+            i === 0 ? null : sortedGroups[i - 1].start
+          )
+        );
+
+        gData.addRows(
+          sortedGroups.map((g, i) => {
+            const v = Number(g.totalNetKcal.toFixed(1));
+            return [labels15[i], v, v];
+          })
+        );
+
+        const chart = new google.visualization.ColumnChart(groupChartRef.current);
+        chart.draw(gData, {
           ...baseChartStyle,
-          title: "体重推移（欠測日は非表示・前後計測があれば線で接続）",
+          title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
           height: 360,
-          legend: { position: "bottom" },
-          interpolateNulls: true,
+          legend: { position: "none" },
+          colors: ["#6ec6ff"],
+          hAxis: { slantedText: false, slantedTextAngle: 45 },
           vAxis: {
-            title: "kg",
-            viewWindow: { min: 1, max: 7 }, // ★指定どおり
+            title: "kcal",
             gridlines: { color: "#e0e0e0" },
-            minorGridlines: { color: "#bdbdbd", count: 4 },
+            minorGridlines: { color: "#b0b0b0", count: 4 },
           },
         });
       }
@@ -594,53 +600,46 @@ export default function SummaryPage() {
             0: { type: "bars" },
             1: { type: "line" },
           },
-          // グラデーションは不可なので雰囲気の近い2色
           colors: ["#4facfe", "#7bd3ff"],
-          vAxis: {
-            title: "kcal",
-            gridlines: { color: "#e0e0e0" }, // 10単位厳密指定は不可なので近似
-            minorGridlines: { color: "#b0b0b0", count: 4 }, // 50相当が濃く見える近似
-          },
-        });
-      }
-
-      // ===== 15分ルール：棒 =====
-      {
-        const gData = new google.visualization.DataTable();
-        gData.addColumn("string", "開始");
-        gData.addColumn("number", "実食kcal");
-        gData.addColumn({ type: "number", role: "annotation" });
-
-        const sortedGroups = [...grouped15].sort((a, b) =>
-          a.start.localeCompare(b.start)
-        );
-
-        const labels15 = sortedGroups.map((g, i) =>
-          labelForMealGroupStart(
-            g.start,
-            i === 0 ? null : sortedGroups[i - 1].start
-          )
-        );
-
-        gData.addRows(
-          sortedGroups.map((g, i) => {
-            const v = Number(g.totalNetKcal.toFixed(1));
-            return [labels15[i], v, v];
-          })
-        );
-
-        const groupChart = new google.visualization.ColumnChart(groupChartRef.current);
-        groupChart.draw(gData, {
-          ...baseChartStyle,
-          title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
-          height: 360,
-          legend: { position: "none" },
-          colors: ["#6ec6ff"],
-          hAxis: { slantedText: false, slantedTextAngle: 45 },
           vAxis: {
             title: "kcal",
             gridlines: { color: "#e0e0e0" },
             minorGridlines: { color: "#b0b0b0", count: 4 },
+          },
+        });
+      }
+
+      // ===== 体重（折れ線 + 7回平均） =====
+      {
+        const wData = new google.visualization.DataTable();
+        wData.addColumn("string", "日付");
+        wData.addColumn("number", "体重(kg)");
+        wData.addColumn({ type: "number", role: "annotation" });
+        wData.addColumn("number", "体重(7回平均)");
+        wData.addColumn({ type: "number", role: "annotation" });
+
+        wData.addRows(
+          weightSeriesForChart.map((d: any) => [
+            d.label,
+            d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
+            d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
+            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
+            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
+          ])
+        );
+
+        const chart = new google.visualization.LineChart(weightChartRef.current);
+        chart.draw(wData, {
+          ...baseChartStyle,
+          title: "体重推移（欠測日は非表示・前後計測があれば線で接続）",
+          height: 360,
+          legend: { position: "bottom" },
+          interpolateNulls: true,
+          vAxis: {
+            title: "kg",
+            viewWindow: { min: 1, max: 7 },
+            gridlines: { color: "#e0e0e0" },
+            minorGridlines: { color: "#bdbdbd", count: 4 },
           },
         });
       }
@@ -659,8 +658,6 @@ export default function SummaryPage() {
 
   const onPreset = (p: "7" | "30" | "90" | "all" | "custom") => {
     setPreset(p);
-    // custom は日付が揃ってからユーザーが「再読込」する運用でもいいが、
-    // ここではプリセット切替時は即再取得して軽量にする
     if (p !== "custom") {
       load(p).catch((e) => setMsg("ERROR: " + String(e?.message ?? e)));
     }
@@ -718,11 +715,13 @@ export default function SummaryPage() {
         給餌：{rows.length} 件 / 体重：{weights.length} 件（取得済み）
       </div>
 
+      {/* ✅ 表示順：15分 → 日別実食 → 日別合計 → 体重 */}
+
       <h3 style={{ marginTop: 16 }}>
-        体重（データラベル近め / 欠測は前後計測があれば接続 / 1〜7kg固定）
+        15分ルール：1回分の実食kcal（棒） / データラベル近め
       </h3>
       <div
-        ref={weightChartRef}
+        ref={groupChartRef}
         style={{
           width: "100%",
           minHeight: 360,
@@ -737,20 +736,6 @@ export default function SummaryPage() {
       </h3>
       <div
         ref={dailyChartRef}
-        style={{
-          width: "100%",
-          minHeight: 360,
-          border: "1px solid #ddd",
-          borderRadius: 16,
-          overflow: "hidden",
-        }}
-      />
-
-      <h3 style={{ marginTop: 16 }}>
-        15分ルール：1回分の実食kcal（棒） / データラベル近め
-      </h3>
-      <div
-        ref={groupChartRef}
         style={{
           width: "100%",
           minHeight: 360,
@@ -801,6 +786,20 @@ export default function SummaryPage() {
           )}
         </tbody>
       </table>
+
+      <h3 style={{ marginTop: 16 }}>
+        体重（データラベル近め / 欠測は前後計測があれば接続 / 1〜7kg固定）
+      </h3>
+      <div
+        ref={weightChartRef}
+        style={{
+          width: "100%",
+          minHeight: 360,
+          border: "1px solid #ddd",
+          borderRadius: 16,
+          overflow: "hidden",
+        }}
+      />
     </main>
   );
 }
