@@ -187,7 +187,7 @@ function movingAvg7Window(values: number[]): Array<number | null> {
 
 /**
  * ★実食計算（APIが net / leftover を返さない場合のフォールバック）
- * ✅ 修正点：snapshotが無くても net_kcal があれば leftover_kcal = kcal - net_kcal を逆算する
+ * ✅ snapshotが無くても net_kcal があれば leftover_kcal = kcal - net_kcal を逆算する
  */
 function calcNet(m: MealRow) {
   const grams = Number(m.grams ?? 0);
@@ -211,13 +211,11 @@ function calcNet(m: MealRow) {
       ? Number(m.leftover_kcal)
       : null;
 
-  // grams は、APIが返してなければ「置いたg - 残りg」
   const net_grams =
     net_grams_from_api != null
       ? net_grams_from_api
       : Math.max(0, grams - leftover_g);
 
-  // net_kcal は API があれば最優先
   const net_kcal =
     net_kcal_from_api != null
       ? net_kcal_from_api
@@ -225,10 +223,6 @@ function calcNet(m: MealRow) {
       ? Math.max(0, kcal - leftover_g * snap)
       : kcal;
 
-  // leftover_kcal は 3段階：
-  // 1) API
-  // 2) snapshot
-  // 3) net_kcal があるなら kcal - net_kcal（★今回の本命）
   const leftover_kcal =
     leftover_kcal_from_api != null
       ? leftover_kcal_from_api
@@ -401,18 +395,17 @@ export default function SummaryPage() {
   }, [rows]);
 
   /**
-   * ✅ 日別合計（テーブル用）
-   * - 給餌(kcal) / お残し(kcal) / 実食(kcal) に統一
-   * ※グラフは触らない（今のまま）
+   * ✅ 日別合計（kcalで統一）
+   * - 給餌(kcal) / お残し(kcal) / 実食(kcal)
    */
   const daily = useMemo(() => {
     const map = new Map<
       string,
       {
         date: string;
-        feedKcal: number; // 給餌kcal（置いたkcal）
-        leftoverKcal: number; // お残しkcal
-        netKcal: number; // 実食kcal
+        feedKcal: number;
+        leftoverKcal: number;
+        netKcal: number;
       }
     >();
 
@@ -498,9 +491,7 @@ export default function SummaryPage() {
     }));
   }, [dailyWeightMap, range.from, range.to]);
 
-  // ✅ 日別実食カロリー（グラフ用）は既存のまま維持したいので、ここでは触らない
-  // ただし、このページ全文として動くように、グラフ用の系列は従来どおり daily から作る必要がある。
-  // 今回 daily の形を変えたので、グラフ用は別途作る（見た目・仕様は一切変更しない）。
+  /** 日別実食カロリー（棒 + 7日平均線用） */
   const dailyForChart = useMemo(() => {
     const map = new Map<string, { date: string; totalNetKcal: number }>();
     for (const r of rows) {
@@ -513,7 +504,6 @@ export default function SummaryPage() {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rows]);
 
-  /** 日別kcalグラフ用：棒 + 7日平均線（仕様そのまま） */
   const dailyKcalSeries = useMemo(() => {
     const dates = dailyForChart.map((d) => d.date);
     const labels = dates.map((ymd, i) =>
@@ -531,11 +521,7 @@ export default function SummaryPage() {
     let cancelled = false;
 
     const draw = async () => {
-      if (
-        !groupChartRef.current ||
-        !dailyChartRef.current ||
-        !weightChartRef.current
-      )
+      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current)
         return;
       if (rows.length === 0 && weights.length === 0) return;
 
@@ -544,7 +530,6 @@ export default function SummaryPage() {
 
       const google = window.google;
 
-      // ✅ データラベルを「棒/線に近づける」
       const baseChartStyle = {
         backgroundColor: "#f5f6f8",
         chartArea: {
@@ -569,15 +554,10 @@ export default function SummaryPage() {
         gData.addColumn("number", "実食kcal");
         gData.addColumn({ type: "number", role: "annotation" });
 
-        const sortedGroups = [...grouped15].sort((a, b) =>
-          a.start.localeCompare(b.start)
-        );
+        const sortedGroups = [...grouped15].sort((a, b) => a.start.localeCompare(b.start));
 
         const labels15 = sortedGroups.map((g, i) =>
-          labelForMealGroupStart(
-            g.start,
-            i === 0 ? null : sortedGroups[i - 1].start
-          )
+          labelForMealGroupStart(g.start, i === 0 ? null : sortedGroups[i - 1].start)
         );
 
         gData.addRows(
@@ -587,9 +567,7 @@ export default function SummaryPage() {
           })
         );
 
-        const chart = new google.visualization.ColumnChart(
-          groupChartRef.current
-        );
+        const chart = new google.visualization.ColumnChart(groupChartRef.current);
         chart.draw(gData, {
           ...baseChartStyle,
           title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
@@ -605,7 +583,7 @@ export default function SummaryPage() {
         });
       }
 
-      // ===== 日別 実食kcal（棒 + 7日平均線） ※仕様そのまま =====
+      // ===== 日別 実食kcal（棒 + 7日平均線） =====
       {
         const dData = new google.visualization.DataTable();
         dData.addColumn("string", "日付");
@@ -628,9 +606,7 @@ export default function SummaryPage() {
 
         dData.addRows(rowsForChart);
 
-        const chart = new google.visualization.ComboChart(
-          dailyChartRef.current
-        );
+        const chart = new google.visualization.ComboChart(dailyChartRef.current);
         chart.draw(dData, {
           ...baseChartStyle,
           title: "日別 実食カロリー（棒）＋ 7日平均（線）",
@@ -664,18 +640,12 @@ export default function SummaryPage() {
             d.label,
             d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
             d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
-            d.weightAvg7 == null
-              ? null
-              : Number(Number(d.weightAvg7).toFixed(2)),
-            d.weightAvg7 == null
-              ? null
-              : Number(Number(d.weightAvg7).toFixed(2)),
+            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
+            d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
           ])
         );
 
-        const chart = new google.visualization.LineChart(
-          weightChartRef.current
-        );
+        const chart = new google.visualization.LineChart(weightChartRef.current);
         chart.draw(wData, {
           ...baseChartStyle,
           title: "体重推移（欠測日は非表示・前後計測があれば線で接続）",
@@ -722,15 +692,10 @@ export default function SummaryPage() {
       <h2>集計</h2>
       {msg && <div style={{ color: "red" }}>{msg}</div>}
 
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-          alignItems: "center",
-        }}
-      >
+      {/* ✅ 操作UI：スマホでは角丸長方形ボタンになる（派手すぎない） */}
+      <div className="summary-toolbar">
         <button
+          className="summary-reload-btn"
           onClick={() =>
             load().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))
           }
@@ -738,16 +703,48 @@ export default function SummaryPage() {
           再読込
         </button>
 
-        <span style={{ marginLeft: 10 }}>表示範囲：</span>
-        <button onClick={() => onPreset("7")}>直近7日</button>
-        <button onClick={() => onPreset("30")}>直近30日</button>
-        <button onClick={() => onPreset("90")}>直近90日</button>
-        <button onClick={() => onPreset("all")}>全部（最大10年）</button>
+        <div className="summary-range-box">
+          <span className="summary-range-label">表示範囲：</span>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={() => setPreset("custom")}>期間指定</button>
+          <div className="summary-range-buttons">
+            <button
+              className={`summary-range-btn ${preset === "7" ? "active" : ""}`}
+              onClick={() => onPreset("7")}
+            >
+              直近7日
+            </button>
+
+            <button
+              className={`summary-range-btn ${preset === "30" ? "active" : ""}`}
+              onClick={() => onPreset("30")}
+            >
+              直近30日
+            </button>
+
+            <button
+              className={`summary-range-btn ${preset === "90" ? "active" : ""}`}
+              onClick={() => onPreset("90")}
+            >
+              直近90日
+            </button>
+
+            <button
+              className={`summary-range-btn ${preset === "all" ? "active" : ""}`}
+              onClick={() => onPreset("all")}
+            >
+              全部（最大10年）
+            </button>
+
+            <button
+              className={`summary-range-btn ${preset === "custom" ? "active" : ""}`}
+              onClick={() => setPreset("custom")}
+            >
+              期間指定
+            </button>
+          </div>
+
           {preset === "custom" && (
-            <>
+            <div className="summary-custom-range">
               <input
                 type="date"
                 value={fromDate}
@@ -759,8 +756,10 @@ export default function SummaryPage() {
                 value={toDate}
                 onChange={(e) => setToDate(e.target.value)}
               />
-              <button onClick={onCustomApply}>適用</button>
-            </>
+              <button className="summary-apply-btn" onClick={onCustomApply}>
+                適用
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -770,7 +769,6 @@ export default function SummaryPage() {
       </div>
 
       {/* ✅ 表示順：15分 → 日別実食 → 日別合計 → 体重 */}
-
       <h3 style={{ marginTop: 16 }}>
         15分ルール：1回分の実食kcal（棒） / データラベル近め
       </h3>
@@ -799,46 +797,45 @@ export default function SummaryPage() {
         }}
       />
 
-    <h3 style={{ marginTop: 16 }}>日別合計（kcalで統一）</h3>
+      <h3 style={{ marginTop: 16 }}>日別合計（kcalで統一）</h3>
 
-<table className="daily-kcal-table">
-  <thead>
-    <tr>
-      <th style={{ textAlign: "center" }}>日付</th>
-      <th style={{ textAlign: "center" }}>給餌(kcal)</th>
-      <th style={{ textAlign: "center" }}>お残し(kcal)</th>
-      <th style={{ textAlign: "center" }}>実食(kcal)</th>
-    </tr>
-  </thead>
+      <table className="daily-kcal-table">
+        <thead>
+          <tr>
+            <th style={{ textAlign: "center" }}>日付</th>
+            <th style={{ textAlign: "center" }}>給餌(kcal)</th>
+            <th style={{ textAlign: "center" }}>お残し(kcal)</th>
+            <th style={{ textAlign: "center" }}>実食(kcal)</th>
+          </tr>
+        </thead>
 
-  <tbody>
-    {daily.map((d) => (
-      <tr key={d.date}>
-        <td data-label="日付" style={{ textAlign: "center" }}>
-          {d.date}
-        </td>
-        <td data-label="給餌(kcal)" style={{ textAlign: "center" }}>
-          {d.feedKcal.toFixed(1)}
-        </td>
-        <td data-label="お残し(kcal)" style={{ textAlign: "center" }}>
-          {d.leftoverKcal.toFixed(1)}
-        </td>
-        <td data-label="実食(kcal)" style={{ textAlign: "center" }}>
-          {d.netKcal.toFixed(1)}
-        </td>
-      </tr>
-    ))}
+        <tbody>
+          {daily.map((d) => (
+            <tr key={d.date}>
+              <td data-label="日付" style={{ textAlign: "center" }}>
+                {d.date}
+              </td>
+              <td data-label="給餌(kcal)" style={{ textAlign: "center" }}>
+                {d.feedKcal.toFixed(1)}
+              </td>
+              <td data-label="お残し(kcal)" style={{ textAlign: "center" }}>
+                {d.leftoverKcal.toFixed(1)}
+              </td>
+              <td data-label="実食(kcal)" style={{ textAlign: "center" }}>
+                {d.netKcal.toFixed(1)}
+              </td>
+            </tr>
+          ))}
 
-    {daily.length === 0 && (
-      <tr>
-        <td colSpan={4} style={{ textAlign: "center" }}>
-          データがありません
-        </td>
-      </tr>
-    )}
-  </tbody>
-</table>
-
+          {daily.length === 0 && (
+            <tr>
+              <td colSpan={4} style={{ textAlign: "center" }}>
+                データがありません
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
 
       <h3 style={{ marginTop: 16 }}>
         体重（データラベル近め / 欠測は前後計測があれば接続 / 1〜7kg固定）

@@ -16,8 +16,7 @@ html, body {
 }
 
 body {
-  font-family: "Meiryo", "Segoe UI", system-ui, -apple-system,
-    "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+  font-family: "Meiryo", "Segoe UI", system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
   background: var(--bg);
   color: var(--text);
 }
@@ -176,5 +175,139 @@ body {
     content: attr(data-label);
     font-weight: 600;
     color: #607d8b;
+  }
+}
+
+/* ==============================
+   Summary 操作バー 高級UI化（派手すぎない）
+   ============================== */
+
+.summary-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+/* 再読込ボタン */
+.summary-reload-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+}
+
+.summary-reload-btn:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* 範囲選択エリア */
+.summary-range-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-range-label {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+/* ボタン群 */
+.summary-range-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 範囲ボタン */
+.summary-range-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 12px;
+  padding: 7px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+  transition: all 0.15s ease;
+}
+
+.summary-range-btn:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* 選択中 */
+.summary-range-btn.active {
+  background: linear-gradient(135deg, var(--head), #eaf6fc);
+  color: #234a66;
+  border-color: #b6d9ef;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* 期間指定 */
+.summary-custom-range {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.summary-custom-range input {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.summary-apply-btn {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--head), #eaf6fc);
+  color: #234a66;
+  transition: all 0.15s ease;
+}
+
+.summary-apply-btn:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+/* ===== スマホ最適化：角丸長方形＆見やすい配置 ===== */
+@media (max-width: 640px) {
+  .summary-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .summary-range-buttons {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .summary-range-btn {
+    border-radius: 14px;
+    padding: 10px 0;
+    font-size: 0.85rem;
+  }
+
+  .summary-reload-btn {
+    width: 100%;
+    text-align: center;
+    border-radius: 14px;
   }
 }
