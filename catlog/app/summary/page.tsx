@@ -65,6 +65,7 @@ function ensureChartsReady(): Promise<void> {
   chartsReadyPromise = (async () => {
     await loadGoogleChartsScript();
     const google = window.google;
+
     google.charts.load("current", { packages: ["corechart"] });
     await new Promise<void>((resolve) =>
       google.charts.setOnLoadCallback(() => resolve())
@@ -137,7 +138,8 @@ function labelForMealGroupStart(iso: string, prevIso: string | null) {
   const md = `${m}/${day}`;
   const part = dayPartLabel(hour);
 
-  if (yearChanged) return `${md}\n${y}${part}`;
+  // ✅ 上に「1/18朝」下に「2026」
+  if (yearChanged) return `${md}${part}\n${y}`;
   return `${md}${part}`;
 }
 
@@ -521,7 +523,11 @@ export default function SummaryPage() {
     let cancelled = false;
 
     const draw = async () => {
-      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current)
+      if (
+        !groupChartRef.current ||
+        !dailyChartRef.current ||
+        !weightChartRef.current
+      )
         return;
       if (rows.length === 0 && weights.length === 0) return;
 
@@ -529,6 +535,26 @@ export default function SummaryPage() {
       if (cancelled) return;
 
       const google = window.google;
+
+      // ===============================
+      // Y軸スケール自動計算
+      // ===============================
+
+      // ✅ グラフ1：0→200、超えたら100刻み切り上げ
+      const maxGroup = Math.max(
+        0,
+        ...grouped15.map((g) => Number(g.totalNetKcal) || 0)
+      );
+      const vMaxGroup =
+        maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
+
+      // ✅ グラフ2：最小0、最大は400→超えたら100刻み切り上げ
+      const maxDaily = Math.max(
+        0,
+        ...dailyKcalSeries.kcal.map((v) => Number(v) || 0)
+      );
+      const vMaxDaily =
+        maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
 
       const baseChartStyle = {
         backgroundColor: "#f5f6f8",
@@ -554,10 +580,15 @@ export default function SummaryPage() {
         gData.addColumn("number", "実食kcal");
         gData.addColumn({ type: "number", role: "annotation" });
 
-        const sortedGroups = [...grouped15].sort((a, b) => a.start.localeCompare(b.start));
+        const sortedGroups = [...grouped15].sort((a, b) =>
+          a.start.localeCompare(b.start)
+        );
 
         const labels15 = sortedGroups.map((g, i) =>
-          labelForMealGroupStart(g.start, i === 0 ? null : sortedGroups[i - 1].start)
+          labelForMealGroupStart(
+            g.start,
+            i === 0 ? null : sortedGroups[i - 1].start
+          )
         );
 
         gData.addRows(
@@ -577,8 +608,9 @@ export default function SummaryPage() {
           hAxis: { slantedText: false, slantedTextAngle: 45 },
           vAxis: {
             title: "kcal",
-            gridlines: { color: "#e0e0e0" },
-            minorGridlines: { color: "#b0b0b0", count: 4 },
+            viewWindow: { min: 0, max: vMaxGroup },
+            gridlines: { color: "#86f8f6" },
+            minorGridlines: { color: "#d0f6ef", count: 4 },
           },
         });
       }
@@ -620,8 +652,9 @@ export default function SummaryPage() {
           colors: ["#4facfe", "#7bd3ff"],
           vAxis: {
             title: "kcal",
-            gridlines: { color: "#e0e0e0" },
-            minorGridlines: { color: "#b0b0b0", count: 4 },
+            viewWindow: { min: 0, max: vMaxDaily }, // ✅ 最小ゼロ
+            gridlines: { color: "#8cf4df" },
+            minorGridlines: { color: "#d5f3f7", count: 4 },
           },
         });
       }
@@ -646,17 +679,39 @@ export default function SummaryPage() {
         );
 
         const chart = new google.visualization.LineChart(weightChartRef.current);
+
+        // ✅ tick 配列（表示順は自由だけど、読みやすく昇順で渡す）
+        const weightTicks = [
+          1, 1.25, 1.5, 1.75,
+          2, 2.25, 2.5, 2.75,
+          3, 3.25, 3.5, 3.75,
+          4, 4.25, 4.5, 4.75,
+          5, 5.25, 5.5, 5.75,
+          6, 6.25, 6.5, 6.75,
+          7,
+        ];
+
         chart.draw(wData, {
           ...baseChartStyle,
           title: "体重推移（欠測日は非表示・前後計測があれば線で接続）",
           height: 360,
           legend: { position: "bottom" },
           interpolateNulls: true,
+
+          // ✅ 1kgが最濃（gridlines）
+          // ✅ それ以外は minorGridlines に寄せる（0.5/0.25/0.75）
+          // ※ Google Charts の仕様で “3段階の線色” はできないためここが限界
           vAxis: {
             title: "kg",
             viewWindow: { min: 1, max: 7 },
-            gridlines: { color: "#e0e0e0" },
-            minorGridlines: { color: "#bdbdbd", count: 4 },
+            gridlines: { color: "#cffff5" },          // ← 1kgが一番濃い
+            minorGridlines: { color: "#1188b0", count: 3 }, // ← 0.25/0.5/0.75相当を薄く
+          },
+
+          vAxes: {
+            0: {
+              ticks: weightTicks, // ← ここに入れる（これでOK）
+            },
           },
         });
       }
@@ -736,7 +791,9 @@ export default function SummaryPage() {
             </button>
 
             <button
-              className={`summary-range-btn ${preset === "custom" ? "active" : ""}`}
+              className={`summary-range-btn ${
+                preset === "custom" ? "active" : ""
+              }`}
               onClick={() => setPreset("custom")}
             >
               期間指定
@@ -770,7 +827,7 @@ export default function SummaryPage() {
 
       {/* ✅ 表示順：15分 → 日別実食 → 日別合計 → 体重 */}
       <h3 style={{ marginTop: 16 }}>
-        15分ルール：1回分の実食kcal（棒） / データラベル近め
+        15分ルール：1回分の実食kcal
       </h3>
       <div
         ref={groupChartRef}
@@ -784,7 +841,7 @@ export default function SummaryPage() {
       />
 
       <h3 style={{ marginTop: 16 }}>
-        日別 実食カロリー（棒）＋ 7日平均（線） / データラベル近め
+        日別 実食カロリー＆7日平均
       </h3>
       <div
         ref={dailyChartRef}
@@ -838,14 +895,14 @@ export default function SummaryPage() {
       </table>
 
       <h3 style={{ marginTop: 16 }}>
-        体重（データラベル近め / 欠測は前後計測があれば接続 / 1〜7kg固定）
+        体重の推移
       </h3>
       <div
         ref={weightChartRef}
         style={{
           width: "100%",
           minHeight: 360,
-          border: "1px solid #ddd",
+          border: "1px solid #dddddd",
           borderRadius: 16,
           overflow: "hidden",
         }}
