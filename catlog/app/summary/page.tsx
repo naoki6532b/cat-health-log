@@ -186,7 +186,8 @@ function movingAvg7Window(values: number[]): Array<number | null> {
 }
 
 /**
- * ★実食計算（APIが net を返さない場合のフォールバック）
+ * ★実食計算（APIが net / leftover を返さない場合のフォールバック）
+ * ✅ 修正点：snapshotが無くても net_kcal があれば leftover_kcal = kcal - net_kcal を逆算する
  */
 function calcNet(m: MealRow) {
   const grams = Number(m.grams ?? 0);
@@ -210,24 +211,32 @@ function calcNet(m: MealRow) {
       ? Number(m.leftover_kcal)
       : null;
 
+  // grams は、APIが返してなければ「置いたg - 残りg」
   const net_grams =
     net_grams_from_api != null
       ? net_grams_from_api
       : Math.max(0, grams - leftover_g);
 
-  const leftover_kcal =
-    leftover_kcal_from_api != null
-      ? leftover_kcal_from_api
-      : Number.isFinite(snap)
-      ? Math.max(0, leftover_g * snap)
-      : 0;
-
+  // net_kcal は API があれば最優先
   const net_kcal =
     net_kcal_from_api != null
       ? net_kcal_from_api
       : Number.isFinite(snap)
       ? Math.max(0, kcal - leftover_g * snap)
       : kcal;
+
+  // leftover_kcal は 3段階：
+  // 1) API
+  // 2) snapshot
+  // 3) net_kcal があるなら kcal - net_kcal（★今回の本命）
+  const leftover_kcal =
+    leftover_kcal_from_api != null
+      ? leftover_kcal_from_api
+      : Number.isFinite(snap)
+      ? Math.max(0, leftover_g * snap)
+      : Number.isFinite(net_kcal)
+      ? Math.max(0, kcal - net_kcal)
+      : 0;
 
   return { net_grams, net_kcal, leftover_kcal };
 }
@@ -295,9 +304,14 @@ export default function SummaryPage() {
         : `/api/summary/meals?days=${days}`;
 
     const weightsUrl =
-      p === "custom" ? `/api/weights?from=${f}&to=${t}` : `/api/weights?days=${days}`;
+      p === "custom"
+        ? `/api/weights?from=${f}&to=${t}`
+        : `/api/weights?days=${days}`;
 
-    const [mRes, wRes] = await Promise.all([apiFetch(mealsUrl), apiFetch(weightsUrl)]);
+    const [mRes, wRes] = await Promise.all([
+      apiFetch(mealsUrl),
+      apiFetch(weightsUrl),
+    ]);
 
     if (!mRes.ok) {
       const txt = await mRes.text().catch(() => "");
@@ -386,7 +400,7 @@ export default function SummaryPage() {
     return groups;
   }, [rows]);
 
-  // 日別合計
+  // 日別合計（お残し減算）
   const daily = useMemo(() => {
     const map = new Map<
       string,
