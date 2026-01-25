@@ -13,7 +13,6 @@ type Meal = {
   kcal: number | null;
   note?: string | null;
 
-  // もし recent API が返してくれるなら表示に使う（無くても動く）
   leftover_g?: number | null;
   kcal_per_g_snapshot?: number | null;
   net_grams?: number | null;
@@ -55,11 +54,30 @@ function n(v: any, fallback = 0) {
   return Number.isFinite(x) ? x : fallback;
 }
 
+/** モーダル表示中は背景スクロールを止める（iOS対策） */
+function useLockBodyScroll(locked: boolean) {
+  useEffect(() => {
+    if (!locked) return;
+
+    const body = document.body;
+    const prevOverflow = body.style.overflow;
+    const prevTouch = body.style.touchAction;
+
+    body.style.overflow = "hidden";
+    body.style.touchAction = "none";
+
+    return () => {
+      body.style.overflow = prevOverflow;
+      body.style.touchAction = prevTouch;
+    };
+  }, [locked]);
+}
+
 /**
  * RecentMeals
  * - 直近の給餌ログ表示
  * - 修正/削除
- * - ★残り入力（フード別g / 全体%）をモーダルで登録
+ * - 残り入力（フード別g / 全体%）をモーダルで登録
  */
 export default function RecentMeals({ limit = 20 }: { limit?: number }) {
   const router = useRouter();
@@ -82,6 +100,9 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
   const [leftNote, setLeftNote] = useState<string>("");
 
   const busyRef = useRef<{ del?: number; edit?: number; leftover?: number }>({});
+
+  // ✅ どちらかのモーダルが開いている間は背景スクロールロック
+  useLockBodyScroll(confirmId != null || leftoverOpen);
 
   const reload = useCallback(async () => {
     setMsg("");
@@ -168,11 +189,10 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
       setRatioPercent("");
       setLeftNote("");
 
-      // グループの詳細を取る（anchor_id から meal_group_id を辿る）
-      // もし group API を作ってない場合は、leftoverモーダル内でフード別入力ができないので必須
-      const res = await apiFetch(`/api/meals/group?anchor_id=${encodeURIComponent(String(anchor.id))}`, {
-        cache: "no-store",
-      });
+      const res = await apiFetch(
+        `/api/meals/group?anchor_id=${encodeURIComponent(String(anchor.id))}`,
+        { cache: "no-store" }
+      );
       if (!res.ok) {
         const t = await res.text();
         throw new Error(t || `HTTP ${res.status}`);
@@ -181,15 +201,11 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
       const list = Array.isArray(data) ? data : [];
       setGroupMeals(list);
 
-      // 初期値：現在の leftover_g を入力欄にセット
       const init: Record<string, string> = {};
-      for (const r of list) {
-        init[String(r.id)] = String(r.leftover_g ?? 0);
-      }
+      for (const r of list) init[String(r.id)] = String(r.leftover_g ?? 0);
       setLeftByFood(init);
     } catch (e: any) {
       setMsg("ERROR: " + String(e?.message ?? e));
-      // 開けないなら閉じる
       closeLeftover();
     } finally {
       window.setTimeout(() => {
@@ -211,7 +227,6 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
   }, [groupMeals, leftByFood]);
 
   const totalNet = useMemo(() => {
-    // net = placed - leftover
     return Math.max(0, totalPlaced - totalLeftoverInput);
   }, [totalPlaced, totalLeftoverInput]);
 
@@ -307,9 +322,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
           <button
             type="button"
             className="rounded-2xl border bg-white px-3 py-2 text-sm hover:bg-zinc-50 active:scale-[0.99]"
-            onClick={() =>
-              reload().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))
-            }
+            onClick={() => reload().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}
           >
             更新
           </button>
@@ -343,9 +356,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-base font-semibold">{fmtJst(m.dt)}</div>
-                <div className="mt-1 text-sm text-zinc-700">
-                  フード：{m.food_name ?? "（不明）"}
-                </div>
+                <div className="mt-1 text-sm text-zinc-700">フード：{m.food_name ?? "（不明）"}</div>
 
                 <div className="mt-2 flex flex-wrap gap-2">
                   <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
@@ -375,7 +386,6 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
                 </div>
               </div>
 
-              {/* ボタン */}
               <div className="flex shrink-0 flex-col gap-2">
                 <button
                   type="button"
@@ -395,9 +405,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    openLeftover(m).catch((err) =>
-                      setMsg("ERROR: " + String(err?.message ?? err))
-                    );
+                    openLeftover(m).catch((err) => setMsg("ERROR: " + String(err?.message ?? err)));
                   }}
                 >
                   残り
@@ -426,246 +434,267 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
         ) : null}
       </div>
 
-      {/* 削除確認モーダル（スマホでも確実に動く） */}
+      {/* 削除確認モーダル（スクロール対応版） */}
       {confirmId != null ? (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[9999] bg-black/40 p-4 overflow-y-auto overscroll-contain"
           onClick={() => {
             setConfirmId(null);
             setConfirmText("");
           }}
         >
           <div
-            className="w-full max-w-md rounded-3xl bg-white p-5 shadow-lg"
+            className="mx-auto my-6 w-full max-w-md rounded-3xl bg-white shadow-lg"
             onClick={(e) => e.stopPropagation()}
+            style={{ WebkitOverflowScrolling: "touch" as any }}
           >
-            <div className="text-base font-semibold">削除しますか？</div>
-            <div className="mt-2 text-sm text-zinc-600 break-words">
-              {confirmText}
+            <div className="p-5">
+              <div className="text-base font-semibold">削除しますか？</div>
+              <div className="mt-2 text-sm text-zinc-600 break-words">{confirmText}</div>
             </div>
 
-            <div className="mt-5 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                onClick={() => {
-                  setConfirmId(null);
-                  setConfirmText("");
-                }}
-              >
-                キャンセル
-              </button>
+            <div className="border-t bg-white p-4">
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                  onClick={() => {
+                    setConfirmId(null);
+                    setConfirmText("");
+                  }}
+                >
+                  キャンセル
+                </button>
 
-              <button
-                type="button"
-                className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
-                onClick={() => {
-                  doDelete(confirmId).catch((err) =>
-                    setMsg("ERROR: " + String(err?.message ?? err))
-                  );
-                }}
-              >
-                削除する
-              </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-500"
+                  onClick={() => {
+                    doDelete(confirmId).catch((err) => setMsg("ERROR: " + String(err?.message ?? err)));
+                  }}
+                >
+                  削除する
+                </button>
+              </div>
             </div>
           </div>
         </div>
       ) : null}
 
-      {/* 残り入力モーダル */}
+      {/* 残り入力モーダル（iPhoneで必ずスクロール＆保存ボタン常時表示） */}
       {leftoverOpen && leftoverAnchor ? (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-[9999] bg-black/40 p-4 overflow-y-auto overscroll-contain"
           onClick={closeLeftover}
         >
           <div
-            className="w-full max-w-2xl rounded-3xl bg-white p-5 shadow-lg"
+            className="mx-auto my-6 w-full max-w-2xl rounded-3xl bg-white shadow-lg flex flex-col"
             onClick={(e) => e.stopPropagation()}
+            style={{
+              // ✅ iOSで“中だけスクロール”を効かせる
+              maxHeight: "calc(100dvh - 2rem)",
+            }}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-base font-semibold">残り入力</div>
-                <div className="mt-1 text-sm text-zinc-600">
-                  {fmtJst(leftoverAnchor.dt)}（この15分グループ全体に反映）
+            {/* header（固定） */}
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-base font-semibold">残り入力</div>
+                  <div className="mt-1 text-sm text-zinc-600">
+                    {fmtJst(leftoverAnchor.dt)}（この15分グループ全体に反映）
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  className="rounded-2xl border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                  onClick={closeLeftover}
+                >
+                  閉じる
+                </button>
+              </div>
+            </div>
+
+            {/* body（ここだけスクロール） */}
+            <div
+              className="px-5 pb-5 overflow-y-auto overscroll-contain"
+              style={{ WebkitOverflowScrolling: "touch" as any }}
+            >
+              <div className="rounded-2xl border bg-zinc-50 p-3 text-sm text-zinc-700">
+                <div className="flex flex-wrap gap-3">
+                  <div>
+                    合計 置いた: <b>{totalPlaced.toFixed(1)} g</b>
+                  </div>
+                  <div>
+                    合計 残り入力: <b>{totalLeftoverInput.toFixed(1)} g</b>
+                  </div>
+                  <div>
+                    合計 実食: <b>{totalNet.toFixed(1)} g</b>
+                  </div>
+                </div>
+                <div className="mt-1 text-xs text-zinc-500">
+                  ※DB制約により「残りg」は各行の「置いたg」を超えないよう自動で丸めます
                 </div>
               </div>
 
-              <button
-                type="button"
-                className="rounded-2xl border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                onClick={closeLeftover}
-              >
-                閉じる
-              </button>
-            </div>
+              {/* モード切替 */}
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className={
+                    "rounded-2xl border px-3 py-2 text-sm " +
+                    (leftMode === "by_food"
+                      ? "bg-zinc-900 text-white border-zinc-900"
+                      : "bg-white hover:bg-zinc-50")
+                  }
+                  onClick={() => setLeftMode("by_food")}
+                >
+                  フード別に入力（g）
+                </button>
 
-            <div className="mt-4 rounded-2xl border bg-zinc-50 p-3 text-sm text-zinc-700">
-              <div className="flex flex-wrap gap-3">
-                <div>合計 置いた: <b>{totalPlaced.toFixed(1)} g</b></div>
-                <div>合計 残り入力: <b>{totalLeftoverInput.toFixed(1)} g</b></div>
-                <div>合計 実食: <b>{totalNet.toFixed(1)} g</b></div>
+                <button
+                  type="button"
+                  className={
+                    "rounded-2xl border px-3 py-2 text-sm " +
+                    (leftMode === "ratio"
+                      ? "bg-zinc-900 text-white border-zinc-900"
+                      : "bg-white hover:bg-zinc-50")
+                  }
+                  onClick={() => setLeftMode("ratio")}
+                >
+                  全体の残割合（%）
+                </button>
               </div>
-              <div className="mt-1 text-xs text-zinc-500">
-                ※DB制約により「残りg」は各行の「置いたg」を超えないよう自動で丸めます
-              </div>
-            </div>
 
-            {/* モード切替 */}
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className={
-                  "rounded-2xl border px-3 py-2 text-sm " +
-                  (leftMode === "by_food"
-                    ? "bg-zinc-900 text-white border-zinc-900"
-                    : "bg-white hover:bg-zinc-50")
-                }
-                onClick={() => setLeftMode("by_food")}
-              >
-                フード別に入力（g）
-              </button>
+              {/* ratio */}
+              {leftMode === "ratio" ? (
+                <div className="mt-4 rounded-3xl border bg-white p-4">
+                  <div className="text-sm font-medium">残り割合（%）</div>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <input
+                      value={ratioPercent}
+                      onChange={(e) => setRatioPercent(e.target.value)}
+                      inputMode="decimal"
+                      className="w-28 rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      placeholder="例: 30"
+                    />
+                    <span className="text-sm text-zinc-600">%</span>
 
-              <button
-                type="button"
-                className={
-                  "rounded-2xl border px-3 py-2 text-sm " +
-                  (leftMode === "ratio"
-                    ? "bg-zinc-900 text-white border-zinc-900"
-                    : "bg-white hover:bg-zinc-50")
-                }
-                onClick={() => setLeftMode("ratio")}
-              >
-                全体の残割合（%）
-              </button>
-            </div>
+                    <button
+                      type="button"
+                      className="rounded-2xl border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
+                      onClick={onApplyRatioToInputs}
+                    >
+                      この%をフード別入力に反映
+                    </button>
+                  </div>
 
-            {/* ratio */}
-            {leftMode === "ratio" ? (
+                  <div className="mt-2 text-xs text-zinc-500">
+                    ※「保存」は割合で保存できます。反映ボタンは、フード別入力欄にも同じ割合を自動入力するための補助です。
+                  </div>
+                </div>
+              ) : null}
+
+              {/* by_food */}
               <div className="mt-4 rounded-3xl border bg-white p-4">
-                <div className="text-sm font-medium">残り割合（%）</div>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <input
-                    value={ratioPercent}
-                    onChange={(e) => setRatioPercent(e.target.value)}
-                    inputMode="decimal"
-                    className="w-28 rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-                    placeholder="例: 30"
-                  />
-                  <span className="text-sm text-zinc-600">%</span>
+                <div className="text-sm font-medium">フード別の残り（g）</div>
 
-                  <button
-                    type="button"
-                    className="rounded-2xl border bg-white px-3 py-2 text-sm hover:bg-zinc-50"
-                    onClick={onApplyRatioToInputs}
-                  >
-                    この%をフード別入力に反映
-                  </button>
-                </div>
-
-                <div className="mt-2 text-xs text-zinc-500">
-                  ※「保存」は割合で保存できます。反映ボタンは、フード別入力欄にも同じ割合を自動入力するための補助です。
-                </div>
-              </div>
-            ) : null}
-
-            {/* by_food */}
-            <div className="mt-4 rounded-3xl border bg-white p-4">
-              <div className="text-sm font-medium">フード別の残り（g）</div>
-
-              <div className="mt-3 space-y-2">
-                {groupMeals.map((r) => (
-                  <div
-                    key={r.id}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-2"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium">
-                        {r.food_name ?? `food_id:${r.food_id}`}
+                <div className="mt-3 space-y-2">
+                  {groupMeals.map((r) => (
+                    <div
+                      key={r.id}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border bg-white px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">{r.food_name ?? `food_id:${r.food_id}`}</div>
+                        <div className="text-xs text-zinc-500">
+                          置いた: {n(r.grams, 0).toFixed(1)}g / kcal: {n(r.kcal, 0).toFixed(1)}
+                        </div>
                       </div>
-                      <div className="text-xs text-zinc-500">
-                        置いた: {n(r.grams, 0).toFixed(1)}g / kcal: {n(r.kcal, 0).toFixed(1)}
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={leftByFood[String(r.id)] ?? "0"}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setLeftByFood((prev) => ({ ...prev, [String(r.id)]: v }));
+                          }}
+                          inputMode="decimal"
+                          className="w-28 rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                        />
+                        <span className="text-sm text-zinc-600">g</span>
+
+                        <button
+                          type="button"
+                          className="rounded-2xl border bg-white px-3 py-2 text-xs hover:bg-zinc-50"
+                          onClick={() => {
+                            const v = n(r.grams, 0);
+                            setLeftByFood((prev) => ({ ...prev, [String(r.id)]: String(v) }));
+                          }}
+                        >
+                          全残し
+                        </button>
+
+                        <button
+                          type="button"
+                          className="rounded-2xl border bg-white px-3 py-2 text-xs hover:bg-zinc-50"
+                          onClick={() => {
+                            setLeftByFood((prev) => ({ ...prev, [String(r.id)]: "0" }));
+                          }}
+                        >
+                          0
+                        </button>
                       </div>
                     </div>
+                  ))}
 
-                    <div className="flex items-center gap-2">
-                      <input
-                        value={leftByFood[String(r.id)] ?? "0"}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setLeftByFood((prev) => ({ ...prev, [String(r.id)]: v }));
-                        }}
-                        inputMode="decimal"
-                        className="w-28 rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-                      />
-                      <span className="text-sm text-zinc-600">g</span>
-
-                      <button
-                        type="button"
-                        className="rounded-2xl border bg-white px-3 py-2 text-xs hover:bg-zinc-50"
-                        onClick={() => {
-                          // 全残し（=置いたg）
-                          const v = n(r.grams, 0);
-                          setLeftByFood((prev) => ({ ...prev, [String(r.id)]: String(v) }));
-                        }}
-                      >
-                        全残し
-                      </button>
-
-                      <button
-                        type="button"
-                        className="rounded-2xl border bg-white px-3 py-2 text-xs hover:bg-zinc-50"
-                        onClick={() => {
-                          // 0
-                          setLeftByFood((prev) => ({ ...prev, [String(r.id)]: "0" }));
-                        }}
-                      >
-                        0
-                      </button>
+                  {groupMeals.length === 0 ? (
+                    <div className="text-sm text-zinc-500">
+                      グループ取得に失敗しました（/api/meals/group が必要です）
                     </div>
-                  </div>
-                ))}
-
-                {groupMeals.length === 0 ? (
-                  <div className="text-sm text-zinc-500">
-                    グループ取得に失敗しました（/api/meals/group が必要です）
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
+
+              {/* note */}
+              <div className="mt-4">
+                <div className="text-sm font-medium">メモ（任意）</div>
+                <textarea
+                  value={leftNote}
+                  onChange={(e) => setLeftNote(e.target.value)}
+                  className="mt-2 w-full rounded-3xl border bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                  rows={3}
+                  placeholder="例：30分後に廃棄 / 少し残した など"
+                />
+              </div>
+
+              {/* 下固定バー分の余白（ここ重要） */}
+              <div className="h-20" />
             </div>
 
-            {/* note */}
-            <div className="mt-4">
-              <div className="text-sm font-medium">メモ（任意）</div>
-              <textarea
-                value={leftNote}
-                onChange={(e) => setLeftNote(e.target.value)}
-                className="mt-2 w-full rounded-3xl border bg-white px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-                rows={3}
-                placeholder="例：30分後に廃棄 / 少し残した など"
-              />
-            </div>
+            {/* actions（下に固定） */}
+            <div className="border-t bg-white p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-zinc-50"
+                  onClick={closeLeftover}
+                >
+                  キャンセル
+                </button>
 
-            {/* actions */}
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
-              <button
-                type="button"
-                className="rounded-2xl border bg-white px-4 py-2 text-sm hover:bg-zinc-50"
-                onClick={closeLeftover}
-              >
-                キャンセル
-              </button>
+                <button
+                  type="button"
+                  className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
+                  onClick={() => submitLeftover().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}
+                >
+                  保存
+                </button>
+              </div>
 
-              <button
-                type="button"
-                className="rounded-2xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800"
-                onClick={() => submitLeftover().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}
-              >
-                保存
-              </button>
-            </div>
-
-            <div className="mt-3 text-xs text-zinc-500">
-              ※あなたの指定どおり、残りの dt は給餌イベントの開始時刻（このグループ）と同一で更新されます
+              <div className="mt-2 text-xs text-zinc-500">
+                ※あなたの指定どおり、残りの dt は給餌イベントの開始時刻（このグループ）と同一で更新されます
+              </div>
             </div>
           </div>
         </div>

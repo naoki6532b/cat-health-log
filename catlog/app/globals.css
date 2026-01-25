@@ -13,11 +13,9 @@
 
 html, body {
   height: 100%;
-  overflow-x: hidden; /* ★横スクロール潰し（保存ボタンが右に逃げる/見切れるのを防ぐ） */
 }
 
 body {
-  min-height: 100dvh; /* ★iOS Safari の 100vh 問題の保険（下が切れるのを防ぐ） */
   font-family: "Meiryo", "Segoe UI", system-ui, -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
   background: var(--bg);
   color: var(--text);
@@ -218,57 +216,9 @@ body {
   gap: 8px;
 }
 
-/* ★上段（集計範囲＋< >ナビ） */
-.summary-range-top {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-}
-
 .summary-range-label {
   font-size: 0.8rem;
   color: var(--muted);
-}
-
-/* ★< > ナビ */
-.summary-nav {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 240px;
-}
-
-.summary-nav-btn {
-  border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.85);
-  border-radius: 12px;
-  width: 40px;
-  height: 36px;
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--muted);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
-  transition: all 0.15s ease;
-}
-
-.summary-nav-btn:hover {
-  background: #ffffff;
-  transform: translateY(-1px);
-}
-
-.summary-nav-text {
-  flex: 1;
-  text-align: center;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text);
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.7);
 }
 
 /* ボタン群 */
@@ -360,13 +310,19 @@ body {
     text-align: center;
     border-radius: 14px;
   }
+}
 
-  /* ★< 期間 > の並びを崩れにくく */
-  .summary-nav {
-    min-width: 0;
-  }
+/* ==============================
+   ✅ iPhone Safari: モーダル内スクロール＆下ボタン隠れ対策
+   ============================== */
 
-  .summary-nav-text {
-    font-size: 0.82rem;
-  }
+.modal-scroll {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.safe-bottom {
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
