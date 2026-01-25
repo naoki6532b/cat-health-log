@@ -12,7 +12,9 @@ type Food = {
 
 function toDatetimeLocal(d: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(
+    d.getDate()
+  )}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 export default function MealEntryPage() {
@@ -128,7 +130,9 @@ export default function MealEntryPage() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">給餌入力</h1>
-          <p className="text-sm text-zinc-500">スマホでも入力しやすいレイアウトにしています</p>
+          <p className="text-sm text-zinc-500">
+            スマホでも入力しやすいレイアウトにしています
+          </p>
         </div>
       </div>
 
@@ -158,7 +162,9 @@ export default function MealEntryPage() {
               onChange={(e) => setDtLocal(e.target.value)}
               className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
             />
-            <div className="mt-1 text-xs text-zinc-500">デフォルト現在・修正可</div>
+            <div className="mt-1 text-xs text-zinc-500">
+              デフォルト現在・修正可
+            </div>
           </label>
 
           {/* フード */}
@@ -179,7 +185,8 @@ export default function MealEntryPage() {
               ))}
             </select>
             <div className="mt-1 text-xs text-zinc-500">
-              1gあたりkcal：{selected ? Number(selected.kcal_per_g).toFixed(6) : "－"}
+              1gあたりkcal：
+              {selected ? Number(selected.kcal_per_g).toFixed(6) : "－"}
             </div>
           </label>
         </div>
@@ -193,11 +200,10 @@ export default function MealEntryPage() {
               <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
               <input
                 value={grams}
-onChange={(e) => {
-  setLastEdited("g" as const);
-  setGrams(e.target.value);
-}}
-
+                onChange={(e) => {
+                  setLastEdited("g" as const);
+                  setGrams(e.target.value);
+                }}
                 inputMode="decimal"
                 className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
               />
@@ -207,42 +213,62 @@ onChange={(e) => {
               <div className="mb-1 text-xs text-zinc-500">カロリー (kcal)</div>
               <input
                 value={kcal}
-onChange={(e) => {
-  setLastEdited("k" as const);
-  setKcal(e.target.value);
-}}
-
+                onChange={(e) => {
+                  setLastEdited("k" as const);
+                  setKcal(e.target.value);
+                }}
                 inputMode="decimal"
                 className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
               />
             </label>
           </div>
 
-          <div className="mt-2 text-xs text-zinc-500">※ g入力でkcal自動、kcal入力でg自動（フード選択が必要）</div>
+          <div className="mt-2 text-xs text-zinc-500">
+            ※ g入力でkcal自動、kcal入力でg自動（フード選択が必要）
+          </div>
         </div>
 
-        {/* ボタン */}
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button
-            onClick={() => save().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}
-            className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 active:scale-[0.99]"
+        {/* ボタン：スマホで常に見えるように下にsticky */}
+        <div className="mt-6 -mx-4 sm:mx-0">
+          <div
+            className="
+              sticky bottom-0 z-50
+              flex flex-col gap-3 sm:flex-row
+              border-t bg-white/95 backdrop-blur
+              px-4 py-3
+              pb-[calc(12px+env(safe-area-inset-bottom))]
+              sm:rounded-2xl sm:border sm:px-3 sm:py-3
+            "
           >
-            保存
-          </button>
+            <button
+              onClick={() =>
+                save().catch((e) =>
+                  setMsg("ERROR: " + String(e?.message ?? e))
+                )
+              }
+              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 active:scale-[0.99] sm:flex-1"
+            >
+              保存
+            </button>
 
-          <button
-            onClick={resetForm}
-            className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
-          >
-            リセット
-          </button>
+            <button
+              onClick={resetForm}
+              className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99] sm:flex-1"
+            >
+              リセット
+            </button>
 
-          <button
-            onClick={() => loadFoods().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))}
-            className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99] sm:ml-auto"
-          >
-            フード一覧を再読込
-          </button>
+            <button
+              onClick={() =>
+                loadFoods().catch((e) =>
+                  setMsg("ERROR: " + String(e?.message ?? e))
+                )
+              }
+              className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99] sm:ml-auto"
+            >
+              フード一覧を再読込
+            </button>
+          </div>
         </div>
       </div>
 
