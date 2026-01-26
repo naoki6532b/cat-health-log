@@ -313,6 +313,21 @@ function presetDays(p: Preset) {
   return 7; // custom時は未使用
 }
 
+function buildTicks(min: number, max: number) {
+  const span = max - min;
+  const step = span > 12 ? 1 : 0.5; // 広がりすぎたら刻みを粗く
+  const start = Math.floor(min / step) * step;
+  const end = Math.ceil(max / step) * step;
+
+  const out: number[] = [];
+  for (let v = start; v <= end + 1e-9; v += step) {
+    const vv = Math.round(v * 100) / 100;
+    if (vv >= min - 1e-9 && vv <= max + 1e-9) out.push(vv);
+    if (out.length > 80) break;
+  }
+  return out;
+}
+
 export default function SummaryPage() {
   const [rows, setRows] = useState<MealRow[]>([]);
   const [weights, setWeights] = useState<WeightRow[]>([]);
@@ -356,7 +371,10 @@ export default function SummaryPage() {
     const mealsUrl = `/api/summary/meals?from=${from}&to=${to}`;
     const weightsUrl = `/api/weights?from=${from}&to=${to}`;
 
-    const [mRes, wRes] = await Promise.all([apiFetch(mealsUrl), apiFetch(weightsUrl)]);
+    const [mRes, wRes] = await Promise.all([
+      apiFetch(mealsUrl),
+      apiFetch(weightsUrl),
+    ]);
 
     if (!mRes.ok) {
       const txt = await mRes.text().catch(() => "");
@@ -426,9 +444,7 @@ export default function SummaryPage() {
     return groups;
   }, [rows]);
 
-  /**
-   * ✅ 日別合計（kcalで統一）
-   */
+  /** ✅ 日別合計（kcalで統一） */
   const daily = useMemo(() => {
     const map = new Map<
       string,
@@ -437,7 +453,8 @@ export default function SummaryPage() {
 
     for (const r of rows) {
       const d = toDateKey(r.dt);
-      const cur = map.get(d) ?? { date: d, feedKcal: 0, leftoverKcal: 0, netKcal: 0 };
+      const cur =
+        map.get(d) ?? { date: d, feedKcal: 0, leftoverKcal: 0, netKcal: 0 };
 
       const kcalPlaced = Number(r.kcal ?? 0);
       const { net_kcal, leftover_kcal } = calcNet(r);
@@ -452,9 +469,7 @@ export default function SummaryPage() {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rows]);
 
-  /**
-   * ✅ 日別体重：同日に複数あるなら「その日の最新」
-   */
+  /** ✅ 日別体重：同日に複数あるなら「その日の最新」 */
   const dailyWeightMap = useMemo(() => {
     const map = new Map<string, { date: string; weightKg: number; dt: string }>();
     const sorted = [...weights].sort((a, b) => a.dt.localeCompare(b.dt));
@@ -468,9 +483,7 @@ export default function SummaryPage() {
     return map;
   }, [weights]);
 
-  /**
-   * ✅ 体重系列：欠測日は null
-   */
+  /** ✅ 体重系列：欠測日は null */
   const weightSeriesForChart = useMemo(() => {
     const f = new Date(activeRangeYmd.from + "T00:00:00");
     const t = new Date(activeRangeYmd.to + "T23:59:59");
@@ -523,7 +536,8 @@ export default function SummaryPage() {
     let cancelled = false;
 
     const draw = async () => {
-      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current) return;
+      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current)
+        return;
       if (rows.length === 0 && weights.length === 0) return;
 
       await ensureChartsReady();
@@ -532,12 +546,20 @@ export default function SummaryPage() {
       const google = window.google;
 
       // グラフ1：0→200、超えたら100刻み切り上げ
-      const maxGroup = Math.max(0, ...grouped15.map((g) => Number(g.totalNetKcal) || 0));
-      const vMaxGroup = maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
+      const maxGroup = Math.max(
+        0,
+        ...grouped15.map((g) => Number(g.totalNetKcal) || 0)
+      );
+      const vMaxGroup =
+        maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
 
       // グラフ2：最小0、最大は400→超えたら100刻み切り上げ
-      const maxDaily = Math.max(0, ...dailyKcalSeries.kcal.map((v) => Number(v) || 0));
-      const vMaxDaily = maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
+      const maxDaily = Math.max(
+        0,
+        ...dailyKcalSeries.kcal.map((v) => Number(v) || 0)
+      );
+      const vMaxDaily =
+        maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
 
       const baseChartStyle = {
         backgroundColor: "#f5f6f8",
@@ -568,7 +590,10 @@ export default function SummaryPage() {
         );
 
         const labels15 = sortedGroups.map((g, i) =>
-          labelForMealGroupStart(g.start, i === 0 ? null : sortedGroups[i - 1].start)
+          labelForMealGroupStart(
+            g.start,
+            i === 0 ? null : sortedGroups[i - 1].start
+          )
         );
 
         gData.addRows(
@@ -657,15 +682,26 @@ export default function SummaryPage() {
 
         const chart = new google.visualization.LineChart(weightChartRef.current);
 
-        const weightTicks = [
-          1, 1.25, 1.5, 1.75,
-          2, 2.25, 2.5, 2.75,
-          3, 3.25, 3.5, 3.75,
-          4, 4.25, 4.5, 4.75,
-          5, 5.25, 5.5, 5.75,
-          6, 6.25, 6.5, 6.75,
-          7,
-        ];
+        // ✅ 縦軸レンジ（要望）
+        // - 基本：2.5〜6.0
+        // - 2.5未満が1つでもあれば：0〜6.0
+        // - 6.0超があれば：max = (最大値 + 1.0)
+        const weightVals = weightSeriesForChart
+          .map((d: any) => (d.weightKg == null ? null : Number(d.weightKg)))
+          .filter((v: any) => typeof v === "number" && Number.isFinite(v)) as number[];
+
+        const minW = weightVals.length ? Math.min(...weightVals) : NaN;
+        const maxW = weightVals.length ? Math.max(...weightVals) : NaN;
+
+        const vMinWeight = Number.isFinite(minW) && minW < 2.5 ? 0 : 2.5;
+
+        let vMaxWeight = 5.0;
+        if (Number.isFinite(maxW) && maxW > 5.0) {
+          // “その数 + 1.0” をそのまま採用（見た目用に 0.1 刻みで切り上げ）
+          vMaxWeight = Math.ceil((maxW + 1.0) * 10) / 10;
+        }
+
+        const weightTicks = buildTicks(vMinWeight, vMaxWeight);
 
         chart.draw(wData, {
           ...baseChartStyle,
@@ -675,11 +711,15 @@ export default function SummaryPage() {
           interpolateNulls: true,
           vAxis: {
             title: "kg",
-            viewWindow: { min: 1, max: 7 },
+            viewWindow: { min: vMinWeight, max: vMaxWeight },
             gridlines: { color: "#cffff5" },
             minorGridlines: { color: "#1188b0", count: 3 },
           },
-          vAxes: { 0: { ticks: weightTicks } },
+          vAxes: {
+            0: {
+              ticks: weightTicks,
+            },
+          },
         });
       }
     };
@@ -699,11 +739,8 @@ export default function SummaryPage() {
   const onPreset = (p: Preset) => {
     setPreset(p);
     setOffsetDays(0);
-    if (p !== "custom") {
-      // customに入ってた入力値を弄らない（戻りやすさ重視）
-      return;
-    }
-    // customにしたら today を終端にしておく
+    if (p !== "custom") return;
+
     const today = jstYmd(new Date());
     setToDate(today);
     setFromDate(addDaysYmd(today, -6));
@@ -713,7 +750,6 @@ export default function SummaryPage() {
   const onCustomApply = () => {
     setPreset("custom");
     setOffsetDays(0);
-    // useEffect が activeRangeYmd の変化で load する
   };
 
   /** < > ナビ（プリセット時のみ） */
@@ -727,7 +763,7 @@ export default function SummaryPage() {
 
   const onNext = () => {
     if (!canNav) return;
-    setOffsetDays((v) => Math.max(0, v - windowDays)); // 未来側へ行きすぎない（今日が上限）
+    setOffsetDays((v) => Math.max(0, v - windowDays));
   };
 
   const rangeText = useMemo(() => {
@@ -758,19 +794,25 @@ export default function SummaryPage() {
           <div className="summary-range-top">
             <span className="summary-range-label">集計範囲：</span>
 
-            {/* < > ナビ */}
             <div className="summary-nav">
-              <button className="summary-nav-btn" onClick={onPrev} disabled={!canNav}>
+              <button
+                className="summary-nav-btn"
+                onClick={onPrev}
+                disabled={!canNav}
+              >
                 &lt;
               </button>
               <div className="summary-nav-text">{rangeText}</div>
-              <button className="summary-nav-btn" onClick={onNext} disabled={!canNav || offsetDays === 0}>
+              <button
+                className="summary-nav-btn"
+                onClick={onNext}
+                disabled={!canNav || offsetDays === 0}
+              >
                 &gt;
               </button>
             </div>
           </div>
 
-          {/* 範囲ボタン（全部は削除、3日を追加） */}
           <div className="summary-range-buttons">
             <button
               className={`summary-range-btn ${preset === "3" ? "active" : ""}`}

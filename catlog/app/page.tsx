@@ -18,13 +18,13 @@ const cards = [
   {
     href: "/entry/elim",
     title: "排泄入力",
-    desc: "うんち/おしっこ の記録",
+    desc: "うんち・おしっこ の記録",
     icon: Droplets,
   },
   {
     href: "/entry/weight",
     title: "体重入力",
-    desc: "体重(kg)を記録（長期推移に強い）",
+    desc: "体重(kg)を記録",
     icon: Scale,
   },
   {
@@ -47,7 +47,7 @@ export default function HomePage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">猫ログ</h1>
         <p className="text-sm text-zinc-600">
-          すぐ入力・すぐ確認。スマホでも押しやすいUIにします。
+          (C)2026 N.Yokoyama
         </p>
       </div>
 
