@@ -315,7 +315,7 @@ function presetDays(p: Preset) {
 
 function buildTicks(min: number, max: number) {
   const span = max - min;
-  const step = span > 12 ? 1 : 0.5; // 広がりすぎたら刻みを粗く
+  const step = span > 12 ? 1 : 0.05; // 広がりすぎたら刻みを粗く
   const start = Math.floor(min / step) * step;
   const end = Math.ceil(max / step) * step;
 
@@ -705,7 +705,7 @@ export default function SummaryPage() {
 
         chart.draw(wData, {
           ...baseChartStyle,
-          title: "体重推移（欠測日は非表示・前後計測があれば線で接続）",
+          title: "体重",
           height: 360,
           legend: { position: "bottom" },
           interpolateNulls: true,
