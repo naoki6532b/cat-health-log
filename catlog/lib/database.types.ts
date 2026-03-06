@@ -7,8 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
@@ -102,6 +100,10 @@ export type Database = {
           kcal_per_g_snapshot: number
           leftover_g: number
           meal_group_id: string
+          meal_set_code_snapshot: string | null
+          meal_set_id: number | null
+          meal_set_name_snapshot: string | null
+          meal_source: string
           note: string | null
           user_id: string | null
         }
@@ -114,6 +116,10 @@ export type Database = {
           kcal_per_g_snapshot: number
           leftover_g?: number
           meal_group_id?: string
+          meal_set_code_snapshot?: string | null
+          meal_set_id?: number | null
+          meal_set_name_snapshot?: string | null
+          meal_source?: string
           note?: string | null
           user_id?: string | null
         }
@@ -126,6 +132,10 @@ export type Database = {
           kcal_per_g_snapshot?: number
           leftover_g?: number
           meal_group_id?: string
+          meal_set_code_snapshot?: string | null
+          meal_set_id?: number | null
+          meal_set_name_snapshot?: string | null
+          meal_source?: string
           note?: string | null
           user_id?: string | null
         }
@@ -135,6 +145,13 @@ export type Database = {
             columns: ["food_id"]
             isOneToOne: false
             referencedRelation: "cat_foods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cat_meals_meal_set_id_fkey"
+            columns: ["meal_set_id"]
+            isOneToOne: false
+            referencedRelation: "meal_sets"
             referencedColumns: ["id"]
           },
         ]
@@ -160,6 +177,87 @@ export type Database = {
           id?: number
           memo?: string | null
           weight_kg?: number
+        }
+        Relationships: []
+      }
+      meal_set_items: {
+        Row: {
+          created_at: string
+          food_id: number
+          grams: number
+          id: number
+          note: string | null
+          set_id: number
+          sort_no: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          food_id: number
+          grams: number
+          id?: never
+          note?: string | null
+          set_id: number
+          sort_no?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          food_id?: number
+          grams?: number
+          id?: never
+          note?: string | null
+          set_id?: number
+          sort_no?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "meal_set_items_food_id_fkey"
+            columns: ["food_id"]
+            isOneToOne: false
+            referencedRelation: "cat_foods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "meal_set_items_set_id_fkey"
+            columns: ["set_id"]
+            isOneToOne: false
+            referencedRelation: "meal_sets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      meal_sets: {
+        Row: {
+          created_at: string
+          id: number
+          is_active: boolean
+          note: string | null
+          set_code: string
+          set_name: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: never
+          is_active?: boolean
+          note?: string | null
+          set_code: string
+          set_name: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: never
+          is_active?: boolean
+          note?: string | null
+          set_code?: string
+          set_name?: string
+          updated_at?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -261,43 +359,3 @@ export type TablesUpdate<
       ? U
       : never
     : never
-
-export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
-> = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
-  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
-    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
-
-export const Constants = {
-  public: {
-    Enums: {},
-  },
-} as const

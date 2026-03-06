@@ -34,6 +34,12 @@ const cards = [
     icon: Database,
   },
   {
+    href: "/meal-sets",
+    title: "セット管理",
+    desc: "給餌セットの登録・一覧確認",
+    icon: Database,
+  },
+  {
     href: "/summary",
     title: "集計",
     desc: "日別・ルール集計・グラフ",
@@ -46,9 +52,7 @@ export default function HomePage() {
     <main className="mx-auto max-w-5xl px-4 py-8">
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">猫ログ</h1>
-        <p className="text-sm text-zinc-600">
-          (C)2026 N.Yokoyama
-        </p>
+        <p className="text-sm text-zinc-600">(C)2026 N.Yokoyama</p>
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2">
