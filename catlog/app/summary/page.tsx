@@ -24,13 +24,20 @@ type WeightRow = {
   memo: string | null;
 };
 
+type Preset = "3" | "7" | "30" | "90" | "custom";
+
+type RangeYmd = {
+  from: string;
+  to: string;
+};
+
 declare global {
   interface Window {
     google?: any;
   }
 }
 
-/** Google Charts は1回だけロードして使い回す（重さ対策） */
+/** Google Charts is loaded only once and reused */
 let chartsReadyPromise: Promise<void> | null = null;
 
 function loadGoogleChartsScript(): Promise<void> {
@@ -75,24 +82,24 @@ function ensureChartsReady(): Promise<void> {
   return chartsReadyPromise;
 }
 
-// JSTで YYYY-MM-DD を作る（環境依存しない）
+// Create YYYY-MM-DD in JST
 function jstYmd(d: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Tokyo",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(d); // "YYYY-MM-DD"
+  }).format(d);
 }
 
-// YYYY-MM-DD を delta 日ずらした YYYY-MM-DD（JST基準）
+// Shift YYYY-MM-DD by delta days in JST
 function addDaysYmd(ymd: string, delta: number) {
   const d = new Date(`${ymd}T00:00:00+09:00`);
   d.setUTCDate(d.getUTCDate() + delta);
   return jstYmd(d);
 }
 
-// JSTで YYYY-MM-DD を作る（食事の日別集計キー）
+// Create YYYY-MM-DD in JST from ISO datetime
 function toDateKey(dtIso: string) {
   const d = new Date(dtIso);
   return new Intl.DateTimeFormat("en-CA", {
@@ -100,12 +107,7 @@ function toDateKey(dtIso: string) {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(d); // "YYYY-MM-DD"
-}
-
-function isoDate(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }).format(d);
 }
 
 function parseYmd(ymd: string) {
@@ -113,27 +115,106 @@ function parseYmd(ymd: string) {
   return { y, m, d };
 }
 
-/**
- * ✅ X軸ラベル規則（グラフ2/体重で使用）
- * - 一番左：M/D（年が変わったら改行で年）
- * - それ以外：日だけ
- */
-function dayLabel(ymd: string, isFirst: boolean, prevYmd: string | null) {
-  const cur = parseYmd(ymd);
-  const prev = prevYmd ? parseYmd(prevYmd) : null;
-  const yearChanged = prev ? cur.y !== prev.y : true;
+/** Date object for Google Charts */
+function ymdToChartDate(ymd: string) {
+  const { y, m, d } = parseYmd(ymd);
+  return new Date(y, m - 1, d);
+}
 
-  if (isFirst) {
-    const md = `${cur.m}/${cur.d}`;
-    if (yearChanged) return `${md}\n${cur.y}`;
-    return md;
-  }
-  return String(cur.d);
+function daysBetweenYmd(from: string, to: string) {
+  const a = new Date(`${from}T00:00:00+09:00`).getTime();
+  const b = new Date(`${to}T00:00:00+09:00`).getTime();
+  return Math.floor((b - a) / 86400000) + 1;
 }
 
 /**
- * ✅ 時間帯ラベル
- * 朝: 5-11, 昼: 12-16, 夜: 17-23, 深夜: 0-4
+ * Build date ticks according to display span
+ * - short: daily
+ * - middle: every few days
+ * - long: monthly
+ */
+function buildDateTicks(from: string, to: string): Date[] {
+  const span = daysBetweenYmd(from, to);
+
+  if (span > 120) {
+    const ticks: Date[] = [];
+    const fromObj = parseYmd(from);
+    const toObj = parseYmd(to);
+
+    ticks.push(ymdToChartDate(from));
+
+    let y = fromObj.y;
+    let m = fromObj.m;
+
+    while (true) {
+      const firstOfMonth = new Date(y, m - 1, 1);
+      const tickYmd = jstYmd(
+        new Date(
+          firstOfMonth.getFullYear(),
+          firstOfMonth.getMonth(),
+          firstOfMonth.getDate()
+        )
+      );
+
+      if (tickYmd > from && tickYmd < to) {
+        ticks.push(firstOfMonth);
+      }
+
+      m++;
+      if (m > 12) {
+        y++;
+        m = 1;
+      }
+
+      if (y > toObj.y || (y === toObj.y && m > toObj.m + 1)) {
+        break;
+      }
+      if (ticks.length > 30) break;
+    }
+
+    if (from !== to) {
+      ticks.push(ymdToChartDate(to));
+    }
+
+    return ticks;
+  }
+
+  let step = 1;
+  if (span <= 10) step = 1;
+  else if (span <= 20) step = 2;
+  else if (span <= 45) step = 5;
+  else if (span <= 90) step = 7;
+  else step = 14;
+
+  const ticks: Date[] = [];
+  let cur = from;
+  let guard = 0;
+
+  while (cur <= to) {
+    ticks.push(ymdToChartDate(cur));
+    cur = addDaysYmd(cur, step);
+    guard++;
+    if (guard > 100) break;
+  }
+
+  const last = ticks[ticks.length - 1];
+  const lastYmd = last ? jstYmd(last) : "";
+  if (lastYmd !== to) {
+    ticks.push(ymdToChartDate(to));
+  }
+
+  return ticks;
+}
+
+function getDateAxisFormat(from: string, to: string) {
+  const span = daysBetweenYmd(from, to);
+  if (span > 120) return "yyyy/M";
+  return "M/d";
+}
+
+/**
+ * Time zone label
+ * morning: 5-11, noon: 12-16, night: 17-23, late night: 0-4
  */
 function dayPartLabel(hour: number) {
   if (hour >= 5 && hour <= 11) return "朝";
@@ -142,7 +223,7 @@ function dayPartLabel(hour: number) {
   return "深夜";
 }
 
-/** JST基準で year/month/day/hour を安定して取り出す */
+/** Extract JST year/month/day/hour stably */
 function getJstParts(iso: string) {
   const d = new Date(iso);
   const parts = new Intl.DateTimeFormat("ja-JP", {
@@ -166,11 +247,7 @@ function getJstParts(iso: string) {
 }
 
 /**
- * ✅ グラフ1（15分ルール）X軸ラベル
- * - 先頭：M/D{朝昼夜深夜}\nYYYY
- * - 年が変わった：M/D{...}\nYYYY
- * - 月が変わった：M/D{...}
- * - 同月同年：D{...}  ← 23昼, 23夜, 24朝...
+ * Label for the 15-minute grouped meal chart
  */
 function labelForMealGroupStart(iso: string, prevIso: string | null) {
   const cur = getJstParts(iso);
@@ -186,14 +263,20 @@ function labelForMealGroupStart(iso: string, prevIso: string | null) {
     return `${cur.m}/${cur.day}${part}\n${cur.y}`;
   }
 
-  if (cur.m !== prev.m) {
-    return `${cur.m}/${cur.day}${part}`;
-  }
-
-  return `${cur.day}${part}`;
+  return `${cur.m}/${cur.day}${part}`;
 }
 
-/** 直近N回の観測値で移動平均（欠測日は null） */
+/** Reduce label density for 15-minute grouped chart */
+function mealGroupShowTextEvery(count: number) {
+  if (count <= 12) return 1;
+  if (count <= 24) return 2;
+  if (count <= 36) return 3;
+  if (count <= 48) return 4;
+  if (count <= 72) return 6;
+  return 8;
+}
+
+/** Moving average over last N observations */
 function movingAvgLastNObservations(
   values: Array<number | null>,
   n: number
@@ -215,26 +298,8 @@ function movingAvgLastNObservations(
   return out;
 }
 
-/** 日別kcal用：直近7点の移動平均（軽量） */
-function movingAvg7Window(values: number[]): Array<number | null> {
-  const out: Array<number | null> = [];
-  for (let i = 0; i < values.length; i++) {
-    let sum = 0;
-    let cnt = 0;
-    for (let j = Math.max(0, i - 6); j <= i; j++) {
-      const v = values[j];
-      if (Number.isFinite(v)) {
-        sum += v;
-        cnt++;
-      }
-    }
-    out.push(cnt ? sum / cnt : null);
-  }
-  return out;
-}
-
 /**
- * ★実食計算（APIが net / leftover を返さない場合のフォールバック）
+ * Fallback net calculation if API does not return net / leftover
  */
 function calcNet(m: MealRow) {
   const grams = Number(m.grams ?? 0);
@@ -282,40 +347,33 @@ function calcNet(m: MealRow) {
   return { net_grams, net_kcal, leftover_kcal };
 }
 
-/** 表示範囲内の連続日付（YYYY-MM-DD配列）を作る（最大3650日） */
-function buildDateSeries(from: Date, to: Date) {
+/** Build continuous date series */
+function buildDateSeriesYmd(fromYmd: string, toYmd: string) {
   const out: string[] = [];
-  const d = new Date(from);
-  d.setHours(0, 0, 0, 0);
-
-  const end = new Date(to);
-  end.setHours(0, 0, 0, 0);
-
-  const guardMax = 3650 + 5;
+  let cur = fromYmd;
   let guard = 0;
 
-  while (d.getTime() <= end.getTime()) {
-    out.push(isoDate(d));
-    d.setDate(d.getDate() + 1);
+  while (cur <= toYmd) {
+    out.push(cur);
+    cur = addDaysYmd(cur, 1);
     guard++;
-    if (guard > guardMax) break;
+    if (guard > 3660) break;
   }
+
   return out;
 }
-
-type Preset = "3" | "7" | "30" | "90" | "custom";
 
 function presetDays(p: Preset) {
   if (p === "3") return 3;
   if (p === "7") return 7;
   if (p === "30") return 30;
   if (p === "90") return 90;
-  return 7; // custom時は未使用
+  return 7;
 }
 
-function buildTicks(min: number, max: number) {
+function buildWeightTicks(min: number, max: number) {
   const span = max - min;
-  const step = span > 12 ? 1 : 0.05; // 広がりすぎたら刻みを粗く
+  const step = span > 12 ? 1 : 0.05;
   const start = Math.floor(min / step) * step;
   const end = Math.ceil(max / step) * step;
 
@@ -328,22 +386,36 @@ function buildTicks(min: number, max: number) {
   return out;
 }
 
+/** Display range dedicated to weight chart */
+function getWeightRangeYmd(preset: Preset, mealRange: RangeYmd): RangeYmd {
+  if (preset === "custom") {
+    return mealRange;
+  }
+
+  if (preset === "30" || preset === "90") {
+    return {
+      from: addDaysYmd(mealRange.to, -364),
+      to: mealRange.to,
+    };
+  }
+
+  return {
+    from: addDaysYmd(mealRange.to, -29),
+    to: mealRange.to,
+  };
+}
+
 export default function SummaryPage() {
   const [rows, setRows] = useState<MealRow[]>([]);
   const [weights, setWeights] = useState<WeightRow[]>([]);
   const [msg, setMsg] = useState("");
 
-  // ✅ デフォルト：直近7日
   const [preset, setPreset] = useState<Preset>("7");
-
-  // ✅ プリセットの「表示窓」を前後移動するためのオフセット（日）
-  // offset=0 は「今日を終端」
   const [offsetDays, setOffsetDays] = useState<number>(0);
 
-  // ✅ 期間指定（custom）
   const [fromDate, setFromDate] = useState<string>(() => {
     const today = jstYmd(new Date());
-    return addDaysYmd(today, -6); // デフォの入力値として 7日
+    return addDaysYmd(today, -6);
   });
   const [toDate, setToDate] = useState<string>(() => jstYmd(new Date()));
 
@@ -351,7 +423,6 @@ export default function SummaryPage() {
   const dailyChartRef = useRef<HTMLDivElement | null>(null);
   const weightChartRef = useRef<HTMLDivElement | null>(null);
 
-  // ✅ 現在表示している「実際の from/to（YYYY-MM-DD）」を決める
   const activeRangeYmd = useMemo(() => {
     if (preset === "custom") {
       return { from: fromDate, to: toDate, days: null as number | null };
@@ -364,12 +435,23 @@ export default function SummaryPage() {
     return { from, to, days };
   }, [preset, fromDate, toDate, offsetDays]);
 
-  /** ✅ 取得：常に from/to で取る（<>前後移動を成立させる） */
-  const load = async (from: string, to: string) => {
+  const weightRangeYmd = useMemo(() => {
+    return getWeightRangeYmd(preset, {
+      from: activeRangeYmd.from,
+      to: activeRangeYmd.to,
+    });
+  }, [preset, activeRangeYmd.from, activeRangeYmd.to]);
+
+  const load = async (
+    mealFrom: string,
+    mealTo: string,
+    weightFrom: string,
+    weightTo: string
+  ) => {
     setMsg("");
 
-    const mealsUrl = `/api/summary/meals?from=${from}&to=${to}`;
-    const weightsUrl = `/api/weights?from=${from}&to=${to}`;
+    const mealsUrl = `/api/summary/meals?from=${mealFrom}&to=${mealTo}`;
+    const weightsUrl = `/api/weights?from=${weightFrom}&to=${weightTo}`;
 
     const [mRes, wRes] = await Promise.all([
       apiFetch(mealsUrl),
@@ -392,15 +474,20 @@ export default function SummaryPage() {
     setWeights(wJson?.data ?? []);
   };
 
-  // ✅ 初回ロード＆表示範囲が変わったらロード
   useEffect(() => {
-    load(activeRangeYmd.from, activeRangeYmd.to).catch((e) =>
-      setMsg("ERROR: " + String(e?.message ?? e))
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeRangeYmd.from, activeRangeYmd.to]);
+    load(
+      activeRangeYmd.from,
+      activeRangeYmd.to,
+      weightRangeYmd.from,
+      weightRangeYmd.to
+    ).catch((e) => setMsg("ERROR: " + String(e?.message ?? e)));
+  }, [
+    activeRangeYmd.from,
+    activeRangeYmd.to,
+    weightRangeYmd.from,
+    weightRangeYmd.to,
+  ]);
 
-  // 15分以内を1回としてグルーピング
   const grouped15 = useMemo(() => {
     const r = [...rows].sort((a, b) => a.dt.localeCompare(b.dt));
     const groups: {
@@ -444,7 +531,6 @@ export default function SummaryPage() {
     return groups;
   }, [rows]);
 
-  /** ✅ 日別合計（kcalで統一） */
   const daily = useMemo(() => {
     const map = new Map<
       string,
@@ -469,7 +555,6 @@ export default function SummaryPage() {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rows]);
 
-  /** ✅ 日別体重：同日に複数あるなら「その日の最新」 */
   const dailyWeightMap = useMemo(() => {
     const map = new Map<string, { date: string; weightKg: number; dt: string }>();
     const sorted = [...weights].sort((a, b) => a.dt.localeCompare(b.dt));
@@ -483,16 +568,12 @@ export default function SummaryPage() {
     return map;
   }, [weights]);
 
-  /** ✅ 体重系列：欠測日は null */
   const weightSeriesForChart = useMemo(() => {
-    const f = new Date(activeRangeYmd.from + "T00:00:00");
-    const t = new Date(activeRangeYmd.to + "T23:59:59");
-    const dates = buildDateSeries(f, t);
+    const dates = buildDateSeriesYmd(weightRangeYmd.from, weightRangeYmd.to);
 
-    const base = dates.map((date, i) => {
-      const label = dayLabel(date, i === 0, i === 0 ? null : dates[i - 1]);
+    const base = dates.map((date) => {
       const w = dailyWeightMap.get(date)?.weightKg ?? null;
-      return { date, label, weightKg: w };
+      return { date, weightKg: w };
     });
 
     const avg7 = movingAvgLastNObservations(
@@ -504,40 +585,43 @@ export default function SummaryPage() {
       ...x,
       weightAvg7: x.weightKg == null ? null : avg7[i],
     }));
-  }, [dailyWeightMap, activeRangeYmd.from, activeRangeYmd.to]);
-
-  /** 日別実食カロリー */
-  const dailyForChart = useMemo(() => {
-    const map = new Map<string, { date: string; totalNetKcal: number }>();
-    for (const r of rows) {
-      const d = toDateKey(r.dt);
-      const cur = map.get(d) ?? { date: d, totalNetKcal: 0 };
-      const { net_kcal } = calcNet(r);
-      cur.totalNetKcal += net_kcal;
-      map.set(d, cur);
-    }
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [rows]);
+  }, [dailyWeightMap, weightRangeYmd.from, weightRangeYmd.to]);
 
   const dailyKcalSeries = useMemo(() => {
-    const dates = dailyForChart.map((d) => d.date);
-    const labels = dates.map((ymd, i) =>
-      dayLabel(ymd, i === 0, i === 0 ? null : dates[i - 1])
-    );
-    const kcal = dailyForChart.map((d) => Number(d.totalNetKcal.toFixed(1)));
-    const avg7 = movingAvg7Window(kcal).map((v) =>
+    const allDates = buildDateSeriesYmd(activeRangeYmd.from, activeRangeYmd.to);
+
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      const d = toDateKey(r.dt);
+      const cur = map.get(d) ?? 0;
+      const { net_kcal } = calcNet(r);
+      map.set(d, cur + net_kcal);
+    }
+
+    const kcal = allDates.map((date) => {
+      const v = map.get(date);
+      return v == null ? null : Number(v.toFixed(1));
+    });
+
+    const avg7 = movingAvgLastNObservations(kcal, 7).map((v) =>
       v == null ? null : Number(v.toFixed(1))
     );
-    return { labels, kcal, avg7 };
-  }, [dailyForChart]);
 
-  // グラフ描画
+    return { dates: allDates, kcal, avg7 };
+  }, [rows, activeRangeYmd.from, activeRangeYmd.to]);
+
   useEffect(() => {
     let cancelled = false;
 
     const draw = async () => {
-      if (!groupChartRef.current || !dailyChartRef.current || !weightChartRef.current)
+      if (
+        !groupChartRef.current ||
+        !dailyChartRef.current ||
+        !weightChartRef.current
+      ) {
         return;
+      }
+
       if (rows.length === 0 && weights.length === 0) return;
 
       await ensureChartsReady();
@@ -545,7 +629,6 @@ export default function SummaryPage() {
 
       const google = window.google;
 
-      // グラフ1：0→200、超えたら100刻み切り上げ
       const maxGroup = Math.max(
         0,
         ...grouped15.map((g) => Number(g.totalNetKcal) || 0)
@@ -553,7 +636,6 @@ export default function SummaryPage() {
       const vMaxGroup =
         maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
 
-      // グラフ2：最小0、最大は400→超えたら100刻み切り上げ
       const maxDaily = Math.max(
         0,
         ...dailyKcalSeries.kcal.map((v) => Number(v) || 0)
@@ -575,10 +657,9 @@ export default function SummaryPage() {
           stem: { length: 5 },
           textStyle: { fontSize: 10, color: "#333", bold: false },
         },
-        hAxis: { slantedText: false },
       } as const;
 
-      // ===== 15分ルール：棒 =====
+      // 15分ルール
       {
         const gData = new google.visualization.DataTable();
         gData.addColumn("string", "開始");
@@ -610,7 +691,10 @@ export default function SummaryPage() {
           height: 360,
           legend: { position: "none" },
           colors: ["#6ec6ff"],
-          hAxis: { slantedText: false, slantedTextAngle: 45 },
+          hAxis: {
+            slantedText: false,
+            showTextEvery: mealGroupShowTextEvery(sortedGroups.length),
+          },
           vAxis: {
             title: "kcal",
             viewWindow: { min: 0, max: vMaxGroup },
@@ -620,28 +704,28 @@ export default function SummaryPage() {
         });
       }
 
-      // ===== 日別 実食kcal（棒 + 7日平均線） =====
+      // 日別 実食kcal
       {
         const dData = new google.visualization.DataTable();
-        dData.addColumn("string", "日付");
+        dData.addColumn("date", "日付");
         dData.addColumn("number", "実食kcal");
         dData.addColumn({ type: "number", role: "annotation" });
         dData.addColumn("number", "7日平均");
         dData.addColumn({ type: "number", role: "annotation" });
 
-        const rowsForChart = dailyKcalSeries.labels.map((label, i) => {
-          const v = dailyKcalSeries.kcal[i];
-          const a = dailyKcalSeries.avg7[i];
-          return [
-            label,
-            Number.isFinite(v) ? v : null,
-            Number.isFinite(v) ? v : null,
-            a == null ? null : a,
-            a == null ? null : a,
-          ];
-        });
-
-        dData.addRows(rowsForChart);
+        dData.addRows(
+          dailyKcalSeries.dates.map((ymd, i) => {
+            const v = dailyKcalSeries.kcal[i];
+            const a = dailyKcalSeries.avg7[i];
+            return [
+              ymdToChartDate(ymd),
+              v == null ? null : v,
+              v == null ? null : v,
+              a == null ? null : a,
+              a == null ? null : a,
+            ];
+          })
+        );
 
         const chart = new google.visualization.ComboChart(dailyChartRef.current);
         chart.draw(dData, {
@@ -652,6 +736,11 @@ export default function SummaryPage() {
           seriesType: "bars",
           series: { 0: { type: "bars" }, 1: { type: "line" } },
           colors: ["#4facfe", "#7bd3ff"],
+          hAxis: {
+            format: getDateAxisFormat(activeRangeYmd.from, activeRangeYmd.to),
+            ticks: buildDateTicks(activeRangeYmd.from, activeRangeYmd.to),
+            slantedText: false,
+          },
           vAxis: {
             title: "kcal",
             viewWindow: { min: 0, max: vMaxDaily },
@@ -661,18 +750,18 @@ export default function SummaryPage() {
         });
       }
 
-      // ===== 体重（折れ線 + 7回平均） =====
+      // 体重
       {
         const wData = new google.visualization.DataTable();
-        wData.addColumn("string", "日付");
+        wData.addColumn("date", "日付");
         wData.addColumn("number", "体重(kg)");
         wData.addColumn({ type: "number", role: "annotation" });
         wData.addColumn("number", "体重(7回平均)");
         wData.addColumn({ type: "number", role: "annotation" });
 
         wData.addRows(
-          weightSeriesForChart.map((d: any) => [
-            d.label,
+          weightSeriesForChart.map((d) => [
+            ymdToChartDate(d.date),
             d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
             d.weightKg == null ? null : Number(Number(d.weightKg).toFixed(2)),
             d.weightAvg7 == null ? null : Number(Number(d.weightAvg7).toFixed(2)),
@@ -682,13 +771,11 @@ export default function SummaryPage() {
 
         const chart = new google.visualization.LineChart(weightChartRef.current);
 
-        // ✅ 縦軸レンジ（要望）
-        // - 基本：2.5〜6.0
-        // - 2.5未満が1つでもあれば：0〜6.0
-        // - 6.0超があれば：max = (最大値 + 1.0)
         const weightVals = weightSeriesForChart
-          .map((d: any) => (d.weightKg == null ? null : Number(d.weightKg)))
-          .filter((v: any) => typeof v === "number" && Number.isFinite(v)) as number[];
+          .map((d) => (d.weightKg == null ? null : Number(d.weightKg)))
+          .filter(
+            (v): v is number => typeof v === "number" && Number.isFinite(v)
+          );
 
         const minW = weightVals.length ? Math.min(...weightVals) : NaN;
         const maxW = weightVals.length ? Math.max(...weightVals) : NaN;
@@ -697,11 +784,10 @@ export default function SummaryPage() {
 
         let vMaxWeight = 5.0;
         if (Number.isFinite(maxW) && maxW > 5.0) {
-          // “その数 + 1.0” をそのまま採用（見た目用に 0.1 刻みで切り上げ）
           vMaxWeight = Math.ceil((maxW + 1.0) * 10) / 10;
         }
 
-        const weightTicks = buildTicks(vMinWeight, vMaxWeight);
+        const weightTicks = buildWeightTicks(vMinWeight, vMaxWeight);
 
         chart.draw(wData, {
           ...baseChartStyle,
@@ -709,16 +795,17 @@ export default function SummaryPage() {
           height: 360,
           legend: { position: "bottom" },
           interpolateNulls: true,
+          hAxis: {
+            format: getDateAxisFormat(weightRangeYmd.from, weightRangeYmd.to),
+            ticks: buildDateTicks(weightRangeYmd.from, weightRangeYmd.to),
+            slantedText: false,
+          },
           vAxis: {
             title: "kg",
             viewWindow: { min: vMinWeight, max: vMaxWeight },
             gridlines: { color: "#cffff5" },
             minorGridlines: { color: "#1188b0", count: 3 },
-          },
-          vAxes: {
-            0: {
-              ticks: weightTicks,
-            },
+            ticks: weightTicks,
           },
         });
       }
@@ -733,12 +820,22 @@ export default function SummaryPage() {
       cancelled = true;
       window.removeEventListener("resize", onResize);
     };
-  }, [rows, weights, grouped15, weightSeriesForChart, dailyKcalSeries]);
+  }, [
+    rows,
+    weights,
+    grouped15,
+    weightSeriesForChart,
+    dailyKcalSeries,
+    activeRangeYmd.from,
+    activeRangeYmd.to,
+    weightRangeYmd.from,
+    weightRangeYmd.to,
+  ]);
 
-  /** プリセット切替（offsetはリセット） */
   const onPreset = (p: Preset) => {
     setPreset(p);
     setOffsetDays(0);
+
     if (p !== "custom") return;
 
     const today = jstYmd(new Date());
@@ -746,13 +843,11 @@ export default function SummaryPage() {
     setFromDate(addDaysYmd(today, -6));
   };
 
-  /** custom 適用 */
   const onCustomApply = () => {
     setPreset("custom");
     setOffsetDays(0);
   };
 
-  /** < > ナビ（プリセット時のみ） */
   const canNav = preset !== "custom";
   const windowDays = canNav ? presetDays(preset) : 0;
 
@@ -770,8 +865,14 @@ export default function SummaryPage() {
     if (preset === "custom") {
       return `${fromDate} 〜 ${toDate}`;
     }
-    return `${activeRangeYmd.from} 〜 ${activeRangeYmd.to}（${presetDays(preset)}日）`;
+    return `${activeRangeYmd.from} 〜 ${activeRangeYmd.to}（${presetDays(
+      preset
+    )}日）`;
   }, [preset, fromDate, toDate, activeRangeYmd.from, activeRangeYmd.to]);
+
+  const weightRangeText = useMemo(() => {
+    return `${weightRangeYmd.from} 〜 ${weightRangeYmd.to}`;
+  }, [weightRangeYmd.from, weightRangeYmd.to]);
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
@@ -782,9 +883,12 @@ export default function SummaryPage() {
         <button
           className="summary-reload-btn"
           onClick={() =>
-            load(activeRangeYmd.from, activeRangeYmd.to).catch((e) =>
-              setMsg("ERROR: " + String(e?.message ?? e))
-            )
+            load(
+              activeRangeYmd.from,
+              activeRangeYmd.to,
+              weightRangeYmd.from,
+              weightRangeYmd.to
+            ).catch((e) => setMsg("ERROR: " + String(e?.message ?? e)))
           }
         >
           再読込
@@ -843,7 +947,9 @@ export default function SummaryPage() {
             </button>
 
             <button
-              className={`summary-range-btn ${preset === "custom" ? "active" : ""}`}
+              className={`summary-range-btn ${
+                preset === "custom" ? "active" : ""
+              }`}
               onClick={() => onPreset("custom")}
             >
               期間指定
@@ -872,7 +978,7 @@ export default function SummaryPage() {
       </div>
 
       <div style={{ marginTop: 10, color: "#555" }}>
-        給餌：{rows.length} 件 / 体重：{weights.length} 件（取得済み）
+        給餌：{rows.length} 件 / 体重：{weights.length} 件（体重グラフ表示範囲で取得済み）
       </div>
 
       <h3 style={{ marginTop: 16 }}>15分ルール：1回分の実食kcal</h3>
@@ -894,6 +1000,21 @@ export default function SummaryPage() {
           width: "100%",
           minHeight: 360,
           border: "1px solid #ddd",
+          borderRadius: 16,
+          overflow: "hidden",
+        }}
+      />
+
+      <h3 style={{ marginTop: 16 }}>体重の推移</h3>
+      <div style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
+        体重グラフ表示範囲：{weightRangeText}
+      </div>
+      <div
+        ref={weightChartRef}
+        style={{
+          width: "100%",
+          minHeight: 360,
+          border: "1px solid #dddddd",
           borderRadius: 16,
           overflow: "hidden",
         }}
@@ -938,18 +1059,6 @@ export default function SummaryPage() {
           )}
         </tbody>
       </table>
-
-      <h3 style={{ marginTop: 16 }}>体重の推移</h3>
-      <div
-        ref={weightChartRef}
-        style={{
-          width: "100%",
-          minHeight: 360,
-          border: "1px solid #dddddd",
-          borderRadius: 16,
-          overflow: "hidden",
-        }}
-      />
     </main>
   );
 }
