@@ -1,34 +1,17 @@
 import "./globals.css";
 import Link from "next/link";
-import {
-  Home,
-  Utensils,
-  Droplets,
-  ListChecks,
-  Database,
-  BarChart3,
-  Scale,
-} from "lucide-react";
+import { appNav } from "@/lib/appNav";
 
 export const metadata = {
   title: "猫健康ログ",
   description: "Cat Health Log",
 };
 
-const nav = [
-  { href: "/", label: "トップ", icon: Home },
-  { href: "/entry/meal", label: "給餌", icon: Utensils },
-  { href: "/entry/elim", label: "排泄", icon: Droplets },
-  { href: "/elims", label: "排泄一覧", icon: ListChecks },
-  { href: "/foods", label: "フード", icon: Database },
-  { href: "/summary", label: "集計", icon: BarChart3 },
-
-  // ✅ 追加：体重（入力）と体重一覧
-  { href: "/entry/weight", label: "体重", icon: Scale },
-  { href: "/weights", label: "体重一覧", icon: ListChecks },
-];
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <html lang="ja">
       <body className="min-h-screen bg-app text-app">
@@ -45,9 +28,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
             {/* PC Nav */}
             <nav className="ml-auto hidden flex-wrap items-center gap-2 sm:flex">
-              {nav.map((n) => (
-                <Link key={n.href} href={n.href} className="navbtn">
-                  {n.label}
+              {appNav.map((item) => (
+                <Link key={item.href} href={item.href} className="navbtn">
+                  {item.label}
                 </Link>
               ))}
             </nav>
@@ -59,14 +42,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Mobile bottom nav */}
         <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/65 sm:hidden">
           <div className="mx-auto max-w-5xl px-3 py-2">
-            {/* ✅ 7 → 8 に変更 */}
-            <div className="grid grid-cols-8 gap-2">
-              {nav.map((n) => {
-                const Icon = n.icon;
+            <div className="grid grid-cols-5 gap-2">
+              {appNav.map((item) => {
+                const Icon = item.icon;
                 return (
-                  <Link key={n.href} href={n.href} className="bottombtn">
+                  <Link key={item.href} href={item.href} className="bottombtn">
                     <Icon size={18} />
-                    {n.label}
+                    {item.shortLabel ?? item.label}
                   </Link>
                 );
               })}
