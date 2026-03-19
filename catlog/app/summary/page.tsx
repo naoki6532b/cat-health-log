@@ -24,13 +24,42 @@ type WeightRow = {
   memo: string | null;
 };
 
-type Preset = "3" | "7" | "30" | "90" | "custom";
-type WeightDisplayMode = "actual" | "ma7" | "ma14";
+type Preset =
+  | "3"
+  | "7"
+  | "30"
+  | "90"
+  | "180"
+  | "365"
+  | "548"
+  | "custom";
+
+type WeightDisplayMode =
+  | "actual"
+  | "ma3"
+  | "ma5"
+  | "ma7"
+  | "ma10"
+  | "ma14";
+
+type WeightRangePreset =
+  | "1m"
+  | "2m"
+  | "3m"
+  | "6m"
+  | "12m"
+  | "18m"
+  | "36m"
+  | "48m"
+  | "60m"
+  | "all";
 
 type RangeYmd = {
   from: string;
   to: string;
 };
+
+type GoogleAxisTick = Date | { v: Date; f: string };
 
 type GoogleChartsType = {
   charts: {
@@ -39,7 +68,10 @@ type GoogleChartsType = {
   };
   visualization: {
     DataTable: new () => {
-      addColumn: (type: string | { type: string; role: string }, label?: string) => void;
+      addColumn: (
+        type: string | { type: string; role: string },
+        label?: string
+      ) => void;
       addRows: (rows: unknown[][]) => void;
     };
     ColumnChart: new (element: Element) => {
@@ -60,7 +92,6 @@ declare global {
   }
 }
 
-/** Google Charts is loaded only once and reused */
 let chartsReadyPromise: Promise<void> | null = null;
 
 function loadGoogleChartsScript(): Promise<void> {
@@ -80,12 +111,12 @@ function loadGoogleChartsScript(): Promise<void> {
         return;
       }
 
-      const handleLoad = () => resolve();
-      const handleError = () =>
-        reject(new Error("Failed to load Google Charts"));
-
-      existing.addEventListener("load", handleLoad, { once: true });
-      existing.addEventListener("error", handleError, { once: true });
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener(
+        "error",
+        () => reject(new Error("Failed to load Google Charts")),
+        { once: true }
+      );
       return;
     }
 
@@ -104,8 +135,8 @@ function ensureChartsReady(): Promise<void> {
 
   chartsReadyPromise = (async () => {
     await loadGoogleChartsScript();
-    const googleObj = window.google;
 
+    const googleObj = window.google;
     if (!googleObj) {
       throw new Error("Google Charts failed to initialize");
     }
@@ -119,7 +150,6 @@ function ensureChartsReady(): Promise<void> {
   return chartsReadyPromise;
 }
 
-// Create YYYY-MM-DD in JST
 function jstYmd(d: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Tokyo",
@@ -129,14 +159,19 @@ function jstYmd(d: Date) {
   }).format(d);
 }
 
-// Shift YYYY-MM-DD by delta days in JST
 function addDaysYmd(ymd: string, delta: number) {
   const d = new Date(`${ymd}T00:00:00+09:00`);
   d.setUTCDate(d.getUTCDate() + delta);
   return jstYmd(d);
 }
 
-// Create YYYY-MM-DD in JST from ISO datetime
+function addMonthsYmd(ymd: string, deltaMonths: number) {
+  const [y, m, d] = ymd.split("-").map(Number);
+  const base = new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+  base.setUTCMonth(base.getUTCMonth() + deltaMonths);
+  return jstYmd(base);
+}
+
 function toDateKey(dtIso: string) {
   const d = new Date(dtIso);
   return new Intl.DateTimeFormat("en-CA", {
@@ -152,14 +187,9 @@ function parseYmd(ymd: string) {
   return { y, m, d };
 }
 
-/** Date object for Google Charts */
 function ymdToChartDate(ymd: string) {
   const { y, m, d } = parseYmd(ymd);
   return new Date(y, m - 1, d);
-}
-
-function isoToChartDate(iso: string) {
-  return new Date(iso);
 }
 
 function daysBetweenYmd(from: string, to: string) {
@@ -168,12 +198,6 @@ function daysBetweenYmd(from: string, to: string) {
   return Math.floor((b - a) / 86400000) + 1;
 }
 
-/**
- * Build date ticks according to display span
- * - short: daily
- * - middle: every few days
- * - long: monthly
- */
 function buildDateTicks(from: string, to: string): Date[] {
   const span = daysBetweenYmd(from, to);
 
@@ -235,7 +259,7 @@ function buildDateTicks(from: string, to: string): Date[] {
     ticks.push(ymdToChartDate(cur));
     cur = addDaysYmd(cur, step);
     guard++;
-    if (guard > 100) break;
+    if (guard > 200) break;
   }
 
   const last = ticks[ticks.length - 1];
@@ -247,16 +271,6 @@ function buildDateTicks(from: string, to: string): Date[] {
   return ticks;
 }
 
-function getDateAxisFormat(from: string, to: string) {
-  const span = daysBetweenYmd(from, to);
-  if (span > 120) return "yyyy/M";
-  return "M/d";
-}
-
-/**
- * Time zone label
- * morning: 5-11, noon: 12-16, night: 17-23, late night: 0-4
- */
 function dayPartLabel(hour: number) {
   if (hour >= 5 && hour <= 11) return "朝";
   if (hour >= 12 && hour <= 16) return "昼";
@@ -264,7 +278,6 @@ function dayPartLabel(hour: number) {
   return "深夜";
 }
 
-/** Extract JST year/month/day/hour stably */
 function getJstParts(iso: string) {
   const d = new Date(iso);
   const parts = new Intl.DateTimeFormat("ja-JP", {
@@ -287,27 +300,31 @@ function getJstParts(iso: string) {
   };
 }
 
-/**
- * Label for the 15-minute grouped meal chart
- */
 function labelForMealGroupStart(iso: string, prevIso: string | null) {
   const cur = getJstParts(iso);
   const part = dayPartLabel(cur.hour);
 
   if (!prevIso) {
-    return `${cur.m}/${cur.day}${part}\n${cur.y}`;
+    return `${cur.m}/${cur.day}${part}`;
   }
 
   const prev = getJstParts(prevIso);
 
   if (cur.y !== prev.y) {
-    return `${cur.m}/${cur.day}${part}\n${cur.y}`;
+    return `${cur.y}/${cur.m}/${cur.day}${part}`;
   }
 
-  return `${cur.m}/${cur.day}${part}`;
+  if (cur.m !== prev.m) {
+    return `${cur.m}/${cur.day}${part}`;
+  }
+
+  if (cur.day !== prev.day) {
+    return `${cur.day}${part}`;
+  }
+
+  return part;
 }
 
-/** Reduce label density for 15-minute grouped chart */
 function mealGroupShowTextEvery(count: number) {
   if (count <= 12) return 1;
   if (count <= 24) return 2;
@@ -317,7 +334,6 @@ function mealGroupShowTextEvery(count: number) {
   return 8;
 }
 
-/** Moving average over last N observations */
 function movingAvgLastNObservations(
   values: Array<number | null>,
   n: number
@@ -336,12 +352,10 @@ function movingAvgLastNObservations(
       out.push(null);
     }
   }
+
   return out;
 }
 
-/**
- * Fallback net calculation if API does not return net / leftover
- */
 function calcNet(m: MealRow) {
   const grams = Number(m.grams ?? 0);
   const kcal = Number(m.kcal ?? 0);
@@ -388,7 +402,6 @@ function calcNet(m: MealRow) {
   return { net_grams, net_kcal, leftover_kcal };
 }
 
-/** Build continuous date series */
 function buildDateSeriesYmd(fromYmd: string, toYmd: string) {
   const out: string[] = [];
   let cur = fromYmd;
@@ -398,7 +411,7 @@ function buildDateSeriesYmd(fromYmd: string, toYmd: string) {
     out.push(cur);
     cur = addDaysYmd(cur, 1);
     guard++;
-    if (guard > 3660) break;
+    if (guard > 20000) break;
   }
 
   return out;
@@ -409,7 +422,21 @@ function presetDays(p: Preset) {
   if (p === "7") return 7;
   if (p === "30") return 30;
   if (p === "90") return 90;
+  if (p === "180") return 180;
+  if (p === "365") return 365;
+  if (p === "548") return 548;
   return 7;
+}
+
+function getMealPresetLabel(p: Preset) {
+  if (p === "3") return "直近3日";
+  if (p === "7") return "直近7日";
+  if (p === "30") return "直近30日";
+  if (p === "90") return "直近90日";
+  if (p === "180") return "直近180日";
+  if (p === "365") return "1年";
+  if (p === "548") return "1.5年";
+  return "期間指定";
 }
 
 function buildWeightTicks(min: number, max: number) {
@@ -427,92 +454,99 @@ function buildWeightTicks(min: number, max: number) {
   return out;
 }
 
-/** Display range dedicated to weight chart */
-function getWeightRangeYmd(preset: Preset, mealRange: RangeYmd): RangeYmd {
-  if (preset === "custom") {
-    return mealRange;
-  }
-
-  if (preset === "30" || preset === "90") {
-    return {
-      from: addDaysYmd(mealRange.to, -364),
-      to: mealRange.to,
-    };
-  }
-
-  return {
-    from: addDaysYmd(mealRange.to, -29),
-    to: mealRange.to,
-  };
-}
-
 function getWeightModeLabel(mode: WeightDisplayMode) {
   if (mode === "actual") return "実測値";
+  if (mode === "ma3") return "3MA";
+  if (mode === "ma5") return "5MA";
   if (mode === "ma7") return "7MA";
+  if (mode === "ma10") return "10MA";
   return "14MA";
 }
 
-type WeightPointForChart = {
-  dt: string;
-  chartDate: Date;
-  actual: number;
-  ma7: number | null;
-  ma14: number | null;
-};
-
-function getWeightTickStep(count: number) {
-  if (count <= 18) return 1;
-  if (count <= 36) return 2;
-  if (count <= 54) return 3;
-  if (count <= 72) return 4;
-  if (count <= 100) return 5;
-  if (count <= 140) return 7;
-  return 10;
+function getWeightModeColor(mode: WeightDisplayMode) {
+  if (mode === "actual") return "#2563eb";
+  if (mode === "ma3") return "#f97316";
+  if (mode === "ma5") return "#16a34a";
+  if (mode === "ma7") return "#dc2626";
+  if (mode === "ma10") return "#0f766e";
+  return "#7c3aed";
 }
 
-function buildCompactWeightTicks(
-  points: Array<{ dt: string; chartDate: Date; value: number | null }>
-) {
-  const valid = points.filter(
-    (p) => typeof p.value === "number" && Number.isFinite(p.value)
-  );
+function getWeightRangePresetLabel(p: WeightRangePreset) {
+  if (p === "1m") return "1か月";
+  if (p === "2m") return "2か月";
+  if (p === "3m") return "3か月";
+  if (p === "6m") return "6か月";
+  if (p === "12m") return "12か月";
+  if (p === "18m") return "18か月";
+  if (p === "36m") return "36か月";
+  if (p === "48m") return "48か月";
+  if (p === "60m") return "60か月";
+  return "すべて";
+}
 
-  if (valid.length === 0) return [];
+function getWeightRangeYmdByPreset(preset: WeightRangePreset): RangeYmd {
+  const today = jstYmd(new Date());
 
-  const step = getWeightTickStep(valid.length);
-  const picked: Array<{ dt: string; chartDate: Date; value: number | null }> = [];
-
-  for (let i = 0; i < valid.length; i++) {
-    if (i === 0 || i === valid.length - 1 || i % step === 0) {
-      picked.push(valid[i]);
-    }
+  if (preset === "all") {
+    return { from: "2000-01-01", to: today };
   }
 
-  return picked.map((point, index) => {
-    const cur = getJstParts(point.dt);
-    const curPart = dayPartLabel(cur.hour);
+  const months =
+    preset === "1m"
+      ? 1
+      : preset === "2m"
+        ? 2
+        : preset === "3m"
+          ? 3
+          : preset === "6m"
+            ? 6
+            : preset === "12m"
+              ? 12
+              : preset === "18m"
+                ? 18
+                : preset === "36m"
+                  ? 36
+                  : preset === "48m"
+                    ? 48
+                    : 60;
 
-    let label = "";
+  return {
+    from: addMonthsYmd(today, -months),
+    to: today,
+  };
+}
 
-    if (index === 0) {
-      label = `${cur.m}/${cur.day}${curPart}`;
-    } else {
-      const prev = getJstParts(picked[index - 1].dt);
+function formatCompactDateLabel(ymd: string, prevYmd: string | null) {
+  const cur = parseYmd(ymd);
 
-      if (cur.y !== prev.y) {
-        label = `${cur.y}/${cur.m}/${cur.day}${curPart}`;
-      } else if (cur.m !== prev.m) {
-        label = `${cur.m}/${cur.day}${curPart}`;
-      } else if (cur.day !== prev.day) {
-        label = `${cur.day}${curPart}`;
-      } else {
-        label = curPart;
-      }
-    }
+  if (!prevYmd) {
+    return `${cur.m}/${cur.d}`;
+  }
+
+  const prev = parseYmd(prevYmd);
+
+  if (cur.y !== prev.y) {
+    return `${cur.y}/${cur.m}/${cur.d}`;
+  }
+
+  if (cur.m !== prev.m) {
+    return `${cur.m}/${cur.d}`;
+  }
+
+  return `${cur.d}`;
+}
+
+function buildCompactDateAxisTicks(from: string, to: string): GoogleAxisTick[] {
+  const baseTicks = buildDateTicks(from, to);
+
+  return baseTicks.map((tick, i) => {
+    const ymd = jstYmd(tick);
+    const prevYmd = i === 0 ? null : jstYmd(baseTicks[i - 1]);
 
     return {
-      v: point.chartDate,
-      f: label,
+      v: tick,
+      f: formatCompactDateLabel(ymd, prevYmd),
     };
   });
 }
@@ -524,6 +558,10 @@ export default function SummaryPage() {
 
   const [preset, setPreset] = useState<Preset>("7");
   const [offsetDays, setOffsetDays] = useState<number>(0);
+
+  const [weightRangePreset, setWeightRangePreset] =
+    useState<WeightRangePreset>("1m");
+
   const [weightDisplayMode, setWeightDisplayMode] =
     useState<WeightDisplayMode>("actual");
 
@@ -546,15 +584,13 @@ export default function SummaryPage() {
     const today = jstYmd(new Date());
     const to = addDaysYmd(today, -offsetDays);
     const from = addDaysYmd(to, -(days - 1));
+
     return { from, to, days };
   }, [preset, fromDate, toDate, offsetDays]);
 
   const weightRangeYmd = useMemo(() => {
-    return getWeightRangeYmd(preset, {
-      from: activeRangeYmd.from,
-      to: activeRangeYmd.to,
-    });
-  }, [preset, activeRangeYmd.from, activeRangeYmd.to]);
+    return getWeightRangeYmdByPreset(weightRangePreset);
+  }, [weightRangePreset]);
 
   const load = async (
     mealFrom: string,
@@ -576,6 +612,7 @@ export default function SummaryPage() {
       const txt = await mRes.text().catch(() => "");
       throw new Error(txt || `Meals HTTP ${mRes.status}`);
     }
+
     if (!wRes.ok) {
       const txt = await wRes.text().catch(() => "");
       throw new Error(txt || `Weights HTTP ${wRes.status}`);
@@ -612,6 +649,7 @@ export default function SummaryPage() {
       totalNetKcal: number;
       totalLeftoverKcal: number;
     }[] = [];
+
     const toMs = (iso: string) => new Date(iso).getTime();
 
     for (const item of r) {
@@ -644,6 +682,7 @@ export default function SummaryPage() {
         });
       }
     }
+
     return groups;
   }, [rows]);
 
@@ -671,55 +710,77 @@ export default function SummaryPage() {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rows]);
 
-  const weightPointsForChart = useMemo<WeightPointForChart[]>(() => {
-    const base = [...weights]
-      .sort((a, b) => a.dt.localeCompare(b.dt))
-      .map((w) => {
-        const kg = Number(w.weight_kg);
-        if (!Number.isFinite(kg) || kg <= 0) return null;
+  const dailyWeightMap = useMemo(() => {
+    const map = new Map<string, { date: string; weightKg: number; dt: string }>();
+    const sorted = [...weights].sort((a, b) => a.dt.localeCompare(b.dt));
 
-        return {
-          dt: w.dt,
-          chartDate: isoToChartDate(w.dt),
-          actual: kg,
-        };
-      })
-      .filter(
-        (v): v is { dt: string; chartDate: Date; actual: number } => v !== null
-      );
+    for (const w of sorted) {
+      const d = toDateKey(w.dt);
+      const kg = Number(w.weight_kg);
 
+      if (!Number.isFinite(kg) || kg <= 0) continue;
+
+      map.set(d, { date: d, weightKg: kg, dt: w.dt });
+    }
+
+    return map;
+  }, [weights]);
+
+  const weightSeriesForChart = useMemo(() => {
+    const dates = buildDateSeriesYmd(weightRangeYmd.from, weightRangeYmd.to);
+
+    const base = dates.map((date) => {
+      const w = dailyWeightMap.get(date)?.weightKg ?? null;
+      return { date, weightKg: w };
+    });
+
+    const avg3 = movingAvgLastNObservations(
+      base.map((x) => x.weightKg),
+      3
+    );
+    const avg5 = movingAvgLastNObservations(
+      base.map((x) => x.weightKg),
+      5
+    );
     const avg7 = movingAvgLastNObservations(
-      base.map((x) => x.actual),
+      base.map((x) => x.weightKg),
       7
     );
+    const avg10 = movingAvgLastNObservations(
+      base.map((x) => x.weightKg),
+      10
+    );
     const avg14 = movingAvgLastNObservations(
-      base.map((x) => x.actual),
+      base.map((x) => x.weightKg),
       14
     );
 
     return base.map((x, i) => ({
       ...x,
-      ma7: avg7[i],
-      ma14: avg14[i],
+      weightAvg3: x.weightKg == null ? null : avg3[i],
+      weightAvg5: x.weightKg == null ? null : avg5[i],
+      weightAvg7: x.weightKg == null ? null : avg7[i],
+      weightAvg10: x.weightKg == null ? null : avg10[i],
+      weightAvg14: x.weightKg == null ? null : avg14[i],
     }));
-  }, [weights]);
+  }, [dailyWeightMap, weightRangeYmd.from, weightRangeYmd.to]);
 
   const activeWeightSeries = useMemo(() => {
-    return weightPointsForChart.map((d) => {
-      const value =
-        weightDisplayMode === "actual"
-          ? d.actual
-          : weightDisplayMode === "ma7"
-            ? d.ma7
-            : d.ma14;
+    return weightSeriesForChart.map((d) => {
+      let value: number | null = d.weightKg;
+
+      if (weightDisplayMode === "ma3") value = d.weightAvg3;
+      else if (weightDisplayMode === "ma5") value = d.weightAvg5;
+      else if (weightDisplayMode === "ma7") value = d.weightAvg7;
+      else if (weightDisplayMode === "ma10") value = d.weightAvg10;
+      else if (weightDisplayMode === "ma14") value = d.weightAvg14;
 
       return {
-        dt: d.dt,
-        chartDate: d.chartDate,
+        date: d.date,
         value,
       };
     });
-  }, [weightPointsForChart, weightDisplayMode]);
+  }, [weightSeriesForChart, weightDisplayMode]);
 
   const dailyKcalSeries = useMemo(() => {
     const allDates = buildDateSeriesYmd(activeRangeYmd.from, activeRangeYmd.to);
@@ -822,6 +883,7 @@ export default function SummaryPage() {
         const chart = new googleObj.visualization.ColumnChart(
           groupChartRef.current
         );
+
         chart.draw(gData, {
           ...baseChartStyle,
           title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
@@ -831,6 +893,7 @@ export default function SummaryPage() {
           hAxis: {
             slantedText: false,
             showTextEvery: mealGroupShowTextEvery(sortedGroups.length),
+            textStyle: { fontSize: 10 },
           },
           vAxis: {
             title: "kcal",
@@ -854,6 +917,7 @@ export default function SummaryPage() {
           dailyKcalSeries.dates.map((ymd, i) => {
             const v = dailyKcalSeries.kcal[i];
             const a = dailyKcalSeries.avg7[i];
+
             return [
               ymdToChartDate(ymd),
               v == null ? null : v,
@@ -867,6 +931,7 @@ export default function SummaryPage() {
         const chart = new googleObj.visualization.ComboChart(
           dailyChartRef.current
         );
+
         chart.draw(dData, {
           ...baseChartStyle,
           title: "日別 実食カロリー（棒）＋ 7日平均（線）",
@@ -876,9 +941,13 @@ export default function SummaryPage() {
           series: { 0: { type: "bars" }, 1: { type: "line" } },
           colors: ["#4facfe", "#7bd3ff"],
           hAxis: {
-            format: getDateAxisFormat(activeRangeYmd.from, activeRangeYmd.to),
-            ticks: buildDateTicks(activeRangeYmd.from, activeRangeYmd.to),
+            ticks: buildCompactDateAxisTicks(
+              activeRangeYmd.from,
+              activeRangeYmd.to
+            ),
             slantedText: false,
+            textStyle: { fontSize: 10 },
+            maxAlternation: 1,
           },
           vAxis: {
             title: "kcal",
@@ -892,7 +961,7 @@ export default function SummaryPage() {
       // 体重
       {
         const wData = new googleObj.visualization.DataTable();
-        wData.addColumn("datetime", "日時");
+        wData.addColumn("date", "日付");
         wData.addColumn("number", getWeightModeLabel(weightDisplayMode));
         wData.addColumn({ type: "number", role: "annotation" });
 
@@ -901,7 +970,7 @@ export default function SummaryPage() {
             const value =
               d.value == null ? null : Number(Number(d.value).toFixed(2));
 
-            return [d.chartDate, value, value];
+            return [ymdToChartDate(d.date), value, value];
           })
         );
 
@@ -926,14 +995,6 @@ export default function SummaryPage() {
         }
 
         const weightTicks = buildWeightTicks(vMinWeight, vMaxWeight);
-        const axisTicks = buildCompactWeightTicks(activeWeightSeries);
-
-        const seriesColor =
-          weightDisplayMode === "actual"
-            ? "#2563eb"
-            : weightDisplayMode === "ma7"
-              ? "#dc2626"
-              : "#7c3aed";
 
         chart.draw(wData, {
           ...baseChartStyle,
@@ -941,22 +1002,17 @@ export default function SummaryPage() {
           height: 360,
           legend: { position: "none" },
           interpolateNulls: true,
-          colors: [seriesColor],
+          colors: [getWeightModeColor(weightDisplayMode)],
           pointSize: 4,
           lineWidth: 2,
-          chartArea: {
-            ...baseChartStyle.chartArea,
-            top: 38,
-            bottom: 56,
-            height: "68%",
-          },
           hAxis: {
-            ticks: axisTicks,
+            ticks: buildCompactDateAxisTicks(
+              weightRangeYmd.from,
+              weightRangeYmd.to
+            ),
             slantedText: false,
             textStyle: { fontSize: 10 },
             maxAlternation: 1,
-            gridlines: { color: "transparent" },
-            minorGridlines: { color: "transparent" },
           },
           vAxis: {
             title: "kg",
@@ -973,7 +1029,10 @@ export default function SummaryPage() {
       setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
     );
 
-    const onResize = () => draw().catch(() => {});
+    const onResize = () => {
+      draw().catch(() => {});
+    };
+
     window.addEventListener("resize", onResize);
 
     return () => {
@@ -1026,14 +1085,29 @@ export default function SummaryPage() {
     if (preset === "custom") {
       return `${fromDate} 〜 ${toDate}`;
     }
-    return `${activeRangeYmd.from} 〜 ${activeRangeYmd.to}（${presetDays(
+
+    return `${activeRangeYmd.from} 〜 ${activeRangeYmd.to}（${getMealPresetLabel(
       preset
-    )}日）`;
+    )}）`;
   }, [preset, fromDate, toDate, activeRangeYmd.from, activeRangeYmd.to]);
 
   const weightRangeText = useMemo(() => {
+    if (weightRangePreset === "all") {
+      const valid = [...weights]
+        .map((w) => {
+          const kg = Number(w.weight_kg);
+          if (!Number.isFinite(kg) || kg <= 0) return null;
+          return toDateKey(w.dt);
+        })
+        .filter((v): v is string => v !== null)
+        .sort();
+
+      const first = valid[0] ?? weightRangeYmd.from;
+      return `${first} 〜 ${weightRangeYmd.to}`;
+    }
+
     return `${weightRangeYmd.from} 〜 ${weightRangeYmd.to}`;
-  }, [weightRangeYmd.from, weightRangeYmd.to]);
+  }, [weightRangePreset, weightRangeYmd.from, weightRangeYmd.to, weights]);
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
@@ -1059,7 +1133,7 @@ export default function SummaryPage() {
 
         <div className="summary-range-box">
           <div className="summary-range-top">
-            <span className="summary-range-label">集計範囲：</span>
+            <span className="summary-range-label">給餌集計範囲：</span>
 
             <div className="summary-nav">
               <button
@@ -1111,6 +1185,33 @@ export default function SummaryPage() {
 
             <button
               className={`summary-range-btn ${
+                preset === "180" ? "active" : ""
+              }`}
+              onClick={() => onPreset("180")}
+            >
+              直近180日
+            </button>
+
+            <button
+              className={`summary-range-btn ${
+                preset === "365" ? "active" : ""
+              }`}
+              onClick={() => onPreset("365")}
+            >
+              1年
+            </button>
+
+            <button
+              className={`summary-range-btn ${
+                preset === "548" ? "active" : ""
+              }`}
+              onClick={() => onPreset("548")}
+            >
+              1.5年
+            </button>
+
+            <button
+              className={`summary-range-btn ${
                 preset === "custom" ? "active" : ""
               }`}
               onClick={() => onPreset("custom")}
@@ -1141,7 +1242,7 @@ export default function SummaryPage() {
       </div>
 
       <div style={{ marginTop: 10, color: "#555" }}>
-        給餌：{rows.length} 件 / 体重：{weights.length} 件（体重グラフ表示範囲で取得済み）
+        給餌：{rows.length} 件 / 体重：{weights.length} 件（体重は独立期間で取得）
       </div>
 
       <h3 style={{ marginTop: 16 }}>15分ルール：1回分の実食kcal</h3>
@@ -1169,6 +1270,57 @@ export default function SummaryPage() {
       />
 
       <h3 style={{ marginTop: 16 }}>体重の推移</h3>
+
+      <div style={{ marginTop: 8, color: "#666", fontSize: 14 }}>
+        体重グラフ集計期間
+      </div>
+
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 8,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        {(
+          [
+            "1m",
+            "2m",
+            "3m",
+            "6m",
+            "12m",
+            "18m",
+            "36m",
+            "48m",
+            "60m",
+            "all",
+          ] as WeightRangePreset[]
+        ).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setWeightRangePreset(p)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 9999,
+              border: "1px solid #d4d4d8",
+              background: weightRangePreset === p ? "#18181b" : "#fff",
+              color: weightRangePreset === p ? "#fff" : "#18181b",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {getWeightRangePresetLabel(p)}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 8, color: "#666", fontSize: 14 }}>
+        表示系列
+      </div>
+
       <div
         style={{
           marginTop: 8,
@@ -1196,6 +1348,38 @@ export default function SummaryPage() {
 
         <button
           type="button"
+          onClick={() => setWeightDisplayMode("ma3")}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 9999,
+            border: "1px solid #d4d4d8",
+            background: weightDisplayMode === "ma3" ? "#18181b" : "#fff",
+            color: weightDisplayMode === "ma3" ? "#fff" : "#18181b",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          3MA
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setWeightDisplayMode("ma5")}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 9999,
+            border: "1px solid #d4d4d8",
+            background: weightDisplayMode === "ma5" ? "#18181b" : "#fff",
+            color: weightDisplayMode === "ma5" ? "#fff" : "#18181b",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          5MA
+        </button>
+
+        <button
+          type="button"
           onClick={() => setWeightDisplayMode("ma7")}
           style={{
             padding: "8px 14px",
@@ -1208,6 +1392,22 @@ export default function SummaryPage() {
           }}
         >
           7MA
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setWeightDisplayMode("ma10")}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 9999,
+            border: "1px solid #d4d4d8",
+            background: weightDisplayMode === "ma10" ? "#18181b" : "#fff",
+            color: weightDisplayMode === "ma10" ? "#fff" : "#18181b",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
+        >
+          10MA
         </button>
 
         <button
@@ -1226,12 +1426,14 @@ export default function SummaryPage() {
           14MA
         </button>
       </div>
+
       <div style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
         体重グラフ表示範囲：{weightRangeText}
       </div>
       <div style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
         表示系列：{getWeightModeLabel(weightDisplayMode)}
       </div>
+
       <div
         ref={weightChartRef}
         style={{
