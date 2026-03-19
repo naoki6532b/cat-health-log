@@ -234,7 +234,7 @@ function buildDateTicks(from: string, to: string): Date[] {
       if (y > toObj.y || (y === toObj.y && m > toObj.m + 1)) {
         break;
       }
-      if (ticks.length > 30) break;
+      if (ticks.length > 40) break;
     }
 
     if (from !== to) {
@@ -259,11 +259,51 @@ function buildDateTicks(from: string, to: string): Date[] {
     ticks.push(ymdToChartDate(cur));
     cur = addDaysYmd(cur, step);
     guard++;
-    if (guard > 200) break;
+    if (guard > 300) break;
   }
 
   const last = ticks[ticks.length - 1];
   const lastYmd = last ? jstYmd(last) : "";
+  if (lastYmd !== to) {
+    ticks.push(ymdToChartDate(to));
+  }
+
+  return ticks;
+}
+
+/** 体重グラフ専用: 下メモリが粗くなりすぎないように通常より細かめ */
+function buildWeightDateTicks(from: string, to: string): Date[] {
+  const span = daysBetweenYmd(from, to);
+
+  let step = 1;
+  if (span <= 31) step = 3;
+  else if (span <= 62) step = 5;
+  else if (span <= 93) step = 7;
+  else if (span <= 186) step = 10;
+  else if (span <= 366) step = 14;
+  else if (span <= 548) step = 21;
+  else if (span <= 1096) step = 30;
+  else if (span <= 1826) step = 45;
+  else step = 60;
+
+  const ticks: Date[] = [];
+  let cur = from;
+  let guard = 0;
+
+  while (cur <= to) {
+    ticks.push(ymdToChartDate(cur));
+    cur = addDaysYmd(cur, step);
+    guard++;
+    if (guard > 600) break;
+  }
+
+  const firstYmd = ticks[0] ? jstYmd(ticks[0]) : "";
+  const lastYmd = ticks[ticks.length - 1] ? jstYmd(ticks[ticks.length - 1]) : "";
+
+  if (firstYmd !== from) {
+    ticks.unshift(ymdToChartDate(from));
+  }
+
   if (lastYmd !== to) {
     ticks.push(ymdToChartDate(to));
   }
@@ -485,7 +525,7 @@ function getWeightRangePresetLabel(p: WeightRangePreset) {
   return "すべて";
 }
 
-function getWeightRangeYmdByPreset(preset: WeightRangePreset): RangeYmd {
+function getWeightRequestRangeYmdByPreset(preset: WeightRangePreset): RangeYmd {
   const today = jstYmd(new Date());
 
   if (preset === "all") {
@@ -551,6 +591,23 @@ function buildCompactDateAxisTicks(from: string, to: string): GoogleAxisTick[] {
   });
 }
 
+function buildCompactWeightDateAxisTicks(
+  from: string,
+  to: string
+): GoogleAxisTick[] {
+  const baseTicks = buildWeightDateTicks(from, to);
+
+  return baseTicks.map((tick, i) => {
+    const ymd = jstYmd(tick);
+    const prevYmd = i === 0 ? null : jstYmd(baseTicks[i - 1]);
+
+    return {
+      v: tick,
+      f: formatCompactDateLabel(ymd, prevYmd),
+    };
+  });
+}
+
 export default function SummaryPage() {
   const [rows, setRows] = useState<MealRow[]>([]);
   const [weights, setWeights] = useState<WeightRow[]>([]);
@@ -588,8 +645,8 @@ export default function SummaryPage() {
     return { from, to, days };
   }, [preset, fromDate, toDate, offsetDays]);
 
-  const weightRangeYmd = useMemo(() => {
-    return getWeightRangeYmdByPreset(weightRangePreset);
+  const weightRequestRangeYmd = useMemo(() => {
+    return getWeightRequestRangeYmdByPreset(weightRangePreset);
   }, [weightRangePreset]);
 
   const load = async (
@@ -629,16 +686,16 @@ export default function SummaryPage() {
     load(
       activeRangeYmd.from,
       activeRangeYmd.to,
-      weightRangeYmd.from,
-      weightRangeYmd.to
+      weightRequestRangeYmd.from,
+      weightRequestRangeYmd.to
     ).catch((e: unknown) =>
       setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
     );
   }, [
     activeRangeYmd.from,
     activeRangeYmd.to,
-    weightRangeYmd.from,
-    weightRangeYmd.to,
+    weightRequestRangeYmd.from,
+    weightRequestRangeYmd.to,
   ]);
 
   const grouped15 = useMemo(() => {
@@ -720,14 +777,34 @@ export default function SummaryPage() {
 
       if (!Number.isFinite(kg) || kg <= 0) continue;
 
+      // 同日の複数記録は最後の1件を採用
       map.set(d, { date: d, weightKg: kg, dt: w.dt });
     }
 
     return map;
   }, [weights]);
 
+  const firstWeightDate = useMemo(() => {
+    const keys = Array.from(dailyWeightMap.keys()).sort();
+    return keys[0] ?? jstYmd(new Date());
+  }, [dailyWeightMap]);
+
+  const weightChartRangeYmd = useMemo(() => {
+    if (weightRangePreset === "all") {
+      return {
+        from: firstWeightDate,
+        to: jstYmd(new Date()),
+      };
+    }
+
+    return weightRequestRangeYmd;
+  }, [weightRangePreset, weightRequestRangeYmd, firstWeightDate]);
+
   const weightSeriesForChart = useMemo(() => {
-    const dates = buildDateSeriesYmd(weightRangeYmd.from, weightRangeYmd.to);
+    const dates = buildDateSeriesYmd(
+      weightChartRangeYmd.from,
+      weightChartRangeYmd.to
+    );
 
     const base = dates.map((date) => {
       const w = dailyWeightMap.get(date)?.weightKg ?? null;
@@ -763,7 +840,7 @@ export default function SummaryPage() {
       weightAvg10: x.weightKg == null ? null : avg10[i],
       weightAvg14: x.weightKg == null ? null : avg14[i],
     }));
-  }, [dailyWeightMap, weightRangeYmd.from, weightRangeYmd.to]);
+  }, [dailyWeightMap, weightChartRangeYmd.from, weightChartRangeYmd.to]);
 
   const activeWeightSeries = useMemo(() => {
     return weightSeriesForChart.map((d) => {
@@ -999,20 +1076,27 @@ export default function SummaryPage() {
         chart.draw(wData, {
           ...baseChartStyle,
           title: `体重（${getWeightModeLabel(weightDisplayMode)}）`,
-          height: 360,
+          height: 380,
           legend: { position: "none" },
           interpolateNulls: true,
           colors: [getWeightModeColor(weightDisplayMode)],
           pointSize: 4,
           lineWidth: 2,
+          chartArea: {
+            ...baseChartStyle.chartArea,
+            bottom: 62,
+            height: "66%",
+          },
           hAxis: {
-            ticks: buildCompactDateAxisTicks(
-              weightRangeYmd.from,
-              weightRangeYmd.to
+            ticks: buildCompactWeightDateAxisTicks(
+              weightChartRangeYmd.from,
+              weightChartRangeYmd.to
             ),
             slantedText: false,
-            textStyle: { fontSize: 10 },
+            textStyle: { fontSize: 9 },
             maxAlternation: 1,
+            gridlines: { color: "#e7e7e7" },
+            minorGridlines: { color: "#f2f2f2" },
           },
           vAxis: {
             title: "kg",
@@ -1048,8 +1132,8 @@ export default function SummaryPage() {
     dailyKcalSeries,
     activeRangeYmd.from,
     activeRangeYmd.to,
-    weightRangeYmd.from,
-    weightRangeYmd.to,
+    weightChartRangeYmd.from,
+    weightChartRangeYmd.to,
   ]);
 
   const onPreset = (p: Preset) => {
@@ -1092,22 +1176,8 @@ export default function SummaryPage() {
   }, [preset, fromDate, toDate, activeRangeYmd.from, activeRangeYmd.to]);
 
   const weightRangeText = useMemo(() => {
-    if (weightRangePreset === "all") {
-      const valid = [...weights]
-        .map((w) => {
-          const kg = Number(w.weight_kg);
-          if (!Number.isFinite(kg) || kg <= 0) return null;
-          return toDateKey(w.dt);
-        })
-        .filter((v): v is string => v !== null)
-        .sort();
-
-      const first = valid[0] ?? weightRangeYmd.from;
-      return `${first} 〜 ${weightRangeYmd.to}`;
-    }
-
-    return `${weightRangeYmd.from} 〜 ${weightRangeYmd.to}`;
-  }, [weightRangePreset, weightRangeYmd.from, weightRangeYmd.to, weights]);
+    return `${weightChartRangeYmd.from} 〜 ${weightChartRangeYmd.to}`;
+  }, [weightChartRangeYmd.from, weightChartRangeYmd.to]);
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
@@ -1121,8 +1191,8 @@ export default function SummaryPage() {
             load(
               activeRangeYmd.from,
               activeRangeYmd.to,
-              weightRangeYmd.from,
-              weightRangeYmd.to
+              weightRequestRangeYmd.from,
+              weightRequestRangeYmd.to
             ).catch((e: unknown) =>
               setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
             )
@@ -1438,7 +1508,7 @@ export default function SummaryPage() {
         ref={weightChartRef}
         style={{
           width: "100%",
-          minHeight: 360,
+          minHeight: 380,
           border: "1px solid #dddddd",
           borderRadius: 16,
           overflow: "hidden",
