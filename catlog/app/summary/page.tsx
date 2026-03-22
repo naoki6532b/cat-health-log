@@ -645,8 +645,27 @@ export default function SummaryPage() {
     return { from, to, days };
   }, [preset, fromDate, toDate, offsetDays]);
 
+  const mealRangeDays = useMemo(() => {
+    return daysBetweenYmd(activeRangeYmd.from, activeRangeYmd.to);
+  }, [activeRangeYmd.from, activeRangeYmd.to]);
+
+  // 30日以上はカロリー系ラベル非表示
+  const showMealDataLabels = useMemo(() => {
+    return mealRangeDays < 30;
+  }, [mealRangeDays]);
+
   const weightRequestRangeYmd = useMemo(() => {
     return getWeightRequestRangeYmdByPreset(weightRangePreset);
+  }, [weightRangePreset]);
+
+  // 12か月以上は体重ラベル非表示
+  const showWeightDataLabels = useMemo(() => {
+    return (
+      weightRangePreset === "1m" ||
+      weightRangePreset === "2m" ||
+      weightRangePreset === "3m" ||
+      weightRangePreset === "6m"
+    );
   }, [weightRangePreset]);
 
   const load = async (
@@ -953,7 +972,7 @@ export default function SummaryPage() {
         gData.addRows(
           sortedGroups.map((g, i) => {
             const v = Number(g.totalNetKcal.toFixed(1));
-            return [labels15[i], v, v];
+            return [labels15[i], v, showMealDataLabels ? v : null];
           })
         );
 
@@ -998,9 +1017,9 @@ export default function SummaryPage() {
             return [
               ymdToChartDate(ymd),
               v == null ? null : v,
-              v == null ? null : v,
+              showMealDataLabels && v != null ? v : null,
               a == null ? null : a,
-              a == null ? null : a,
+              showMealDataLabels && a != null ? a : null,
             ];
           })
         );
@@ -1047,7 +1066,11 @@ export default function SummaryPage() {
             const value =
               d.value == null ? null : Number(Number(d.value).toFixed(2));
 
-            return [ymdToChartDate(d.date), value, value];
+            return [
+              ymdToChartDate(d.date),
+              value,
+              showWeightDataLabels && value != null ? value : null,
+            ];
           })
         );
 
@@ -1134,6 +1157,8 @@ export default function SummaryPage() {
     activeRangeYmd.to,
     weightChartRangeYmd.from,
     weightChartRangeYmd.to,
+    showMealDataLabels,
+    showWeightDataLabels,
   ]);
 
   const onPreset = (p: Preset) => {
