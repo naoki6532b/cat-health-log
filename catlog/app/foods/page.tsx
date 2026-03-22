@@ -274,63 +274,77 @@ export default function FoodsPage() {
         </div>
       </section>
 
-      <section className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
-        <div className="border-b bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-700">
+      <section className="rounded-2xl border bg-white shadow-sm">
+        <div className="border-b bg-zinc-50 px-4 py-2 text-sm font-semibold text-zinc-700">
           登録済みフード
         </div>
 
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-white text-zinc-700">
-              <th className="border-b px-3 py-3 text-left">ID</th>
-              <th className="border-b px-3 py-3 text-left">フード名</th>
-              <th className="border-b px-3 py-3 text-left">種別</th>
-              <th className="border-b px-3 py-3 text-right">package g</th>
-              <th className="border-b px-3 py-3 text-right">package kcal</th>
-              <th className="border-b px-3 py-3 text-right">1gあたりkcal</th>
-              <th className="border-b px-3 py-3 text-center">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {foods.map((f) => (
-              <tr key={f.id} className="odd:bg-white even:bg-zinc-50/50">
-                <td className="border-b px-3 py-3">{f.id}</td>
-                <td className="border-b px-3 py-3">{f.food_name}</td>
-                <td className="border-b px-3 py-3">{f.food_type ?? ""}</td>
-                <td className="border-b px-3 py-3 text-right">{f.package_g ?? ""}</td>
-                <td className="border-b px-3 py-3 text-right">{f.package_kcal ?? ""}</td>
-                <td className="border-b px-3 py-3 text-right">
-                  {Number(f.kcal_per_g).toFixed(6)}
-                </td>
-                <td className="border-b px-3 py-3">
-                  <div className="flex flex-wrap justify-center gap-2">
-                    <button type="button" onClick={() => startEdit(f)} className="btn px-3 py-1.5 text-xs">
-                      編集
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        del(f).catch((e: unknown) =>
-                          setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
-                        )
-                      }
-                      className="rounded-2xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
-                    >
-                      削除
-                    </button>
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-xs leading-tight">
+            <thead className="sticky top-0 z-10 bg-white">
+              <tr className="bg-white text-zinc-700">
+                <th className="border-b px-2 py-2 text-left font-semibold">ID</th>
+                <th className="border-b px-2 py-2 text-left font-semibold">フード名</th>
+                <th className="border-b px-2 py-2 text-left font-semibold">種別</th>
+                <th className="border-b px-2 py-2 text-right font-semibold">package g</th>
+                <th className="border-b px-2 py-2 text-right font-semibold">package kcal</th>
+                <th className="border-b px-2 py-2 text-right font-semibold">1gあたりkcal</th>
+                <th className="border-b px-2 py-2 text-center font-semibold">操作</th>
               </tr>
-            ))}
-            {foods.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-sm text-zinc-500">
-                  まだ登録がありません
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {foods.map((f) => (
+                <tr key={f.id} className="odd:bg-white even:bg-zinc-50/50">
+                  <td className="border-b px-2 py-2 align-middle">{f.id}</td>
+                  <td className="border-b px-2 py-2 align-middle whitespace-nowrap">
+                    {f.food_name}
+                  </td>
+                  <td className="border-b px-2 py-2 align-middle whitespace-nowrap">
+                    {f.food_type ?? ""}
+                  </td>
+                  <td className="border-b px-2 py-2 text-right align-middle">
+                    {f.package_g ?? ""}
+                  </td>
+                  <td className="border-b px-2 py-2 text-right align-middle">
+                    {f.package_kcal ?? ""}
+                  </td>
+                  <td className="border-b px-2 py-2 text-right align-middle">
+                    {Number(f.kcal_per_g).toFixed(6)}
+                  </td>
+                  <td className="border-b px-2 py-2 align-middle">
+                    <div className="flex flex-wrap justify-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => startEdit(f)}
+                        className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-zinc-700 shadow-sm transition hover:bg-zinc-50"
+                      >
+                        編集
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          del(f).catch((e: unknown) =>
+                            setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+                          )
+                        }
+                        className="rounded-xl border border-red-200 bg-red-50 px-2.5 py-1 text-[11px] font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+                      >
+                        削除
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {foods.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-6 text-center text-sm text-zinc-500">
+                    まだ登録がありません
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     </main>
   );
