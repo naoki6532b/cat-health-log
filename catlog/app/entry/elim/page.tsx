@@ -142,9 +142,6 @@ export default function ElimEntryPage() {
             <Link href="/elims" className="navbtn">
               排泄一覧へ
             </Link>
-            <Link href="/" className="navbtn">
-              トップへ
-            </Link>
           </div>
         </div>
       </div>

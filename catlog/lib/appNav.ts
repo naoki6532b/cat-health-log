@@ -1,5 +1,5 @@
 import {
-  Home,
+  Stethoscope,
   Utensils,
   Droplets,
   ListChecks,
@@ -14,17 +14,10 @@ export type AppNavItem = {
   label: string;
   shortLabel?: string;
   desc: string;
-  icon: typeof Home;
+  icon: typeof Stethoscope;
 };
 
 export const appNav: AppNavItem[] = [
-  {
-    href: "/",
-    label: "トップ",
-    shortLabel: "トップ",
-    desc: "ホーム画面",
-    icon: Home,
-  },
   {
     href: "/entry/meal",
     label: "給餌入力",
@@ -45,6 +38,13 @@ export const appNav: AppNavItem[] = [
     shortLabel: "排泄一覧",
     desc: "排泄ログの一覧確認",
     icon: ListChecks,
+  },
+  {
+    href: "/medical",
+    label: "医療記録",
+    shortLabel: "医療",
+    desc: "受診・検査・処方と明細PDFを管理",
+    icon: Stethoscope,
   },
   {
     href: "/entry/weight",

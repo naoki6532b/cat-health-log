@@ -206,10 +206,7 @@ export default function ElimsPage() {
             const isOpen = openDay === r.day;
 
             return (
-              <div
-                key={r.day}
-                className="grid grid-cols-3 items-center px-4 py-3"
-              >
+              <div key={r.day} className="grid grid-cols-3 items-center px-4 py-3">
                 <div className="relative pr-3">
                   <button
                     type="button"
