@@ -33,13 +33,8 @@ type Preset =
   | "548"
   | "custom";
 
-type WeightDisplayMode =
-  | "actual"
-  | "ma3"
-  | "ma5"
-  | "ma7"
-  | "ma10"
-  | "ma14";
+type WeightSmoothKind = "actual" | "ema" | "ma";
+type WeightSmoothPeriod = 3 | 7 | 14;
 
 type WeightRangePreset =
   | "1m"
@@ -365,6 +360,32 @@ function movingAvgLastNObservations(
   return out;
 }
 
+function exponentialAvgLastNObservations(
+  values: Array<number | null>,
+  n: number
+): Array<number | null> {
+  const out: Array<number | null> = [];
+  const alpha = 2 / (n + 1);
+  let prevEma: number | null = null;
+
+  for (let i = 0; i < values.length; i++) {
+    const v = values[i];
+
+    if (typeof v === "number" && Number.isFinite(v)) {
+      if (prevEma == null) {
+        prevEma = v;
+      } else {
+        prevEma = alpha * v + (1 - alpha) * prevEma;
+      }
+      out.push(prevEma);
+    } else {
+      out.push(null);
+    }
+  }
+
+  return out;
+}
+
 function calcNet(m: MealRow) {
   const grams = Number(m.grams ?? 0);
   const kcal = Number(m.kcal ?? 0);
@@ -490,24 +511,6 @@ function buildKcalTicks(min: number, max: number) {
   }
 
   return out;
-}
-
-function getWeightModeLabel(mode: WeightDisplayMode) {
-  if (mode === "actual") return "実測値";
-  if (mode === "ma3") return "3MA";
-  if (mode === "ma5") return "5MA";
-  if (mode === "ma7") return "7MA";
-  if (mode === "ma10") return "10MA";
-  return "14MA";
-}
-
-function getWeightModeColor(mode: WeightDisplayMode) {
-  if (mode === "actual") return "#2563eb";
-  if (mode === "ma3") return "#f97316";
-  if (mode === "ma5") return "#16a34a";
-  if (mode === "ma7") return "#dc2626";
-  if (mode === "ma10") return "#0f766e";
-  return "#7c3aed";
 }
 
 function getWeightRangePresetLabel(p: WeightRangePreset) {
@@ -638,6 +641,32 @@ function calcLatestAlignedScrollLeft(params: {
   const maxScrollLeft = Math.max(0, chartWidthPx - viewportWidth);
 
   return clamp(Math.round(desired), 0, maxScrollLeft);
+}
+
+function getWeightSeriesLabel(
+  kind: WeightSmoothKind,
+  period: WeightSmoothPeriod
+) {
+  if (kind === "actual") return "実測値";
+  if (kind === "ema") return `EMA${period}`;
+  return `MA${period}`;
+}
+
+function getWeightSeriesColor(
+  kind: WeightSmoothKind,
+  period: WeightSmoothPeriod
+) {
+  if (kind === "actual") return "#2563eb";
+
+  if (kind === "ema") {
+    if (period === 3) return "#f97316";
+    if (period === 7) return "#16a34a";
+    return "#0f766e";
+  }
+
+  if (period === 3) return "#dc2626";
+  if (period === 7) return "#7c3aed";
+  return "#475569";
 }
 
 type FixedYAxisProps = {
@@ -802,8 +831,10 @@ export default function SummaryPage() {
   const [weightRangePreset, setWeightRangePreset] =
     useState<WeightRangePreset>("1m");
 
-  const [weightDisplayMode, setWeightDisplayMode] =
-    useState<WeightDisplayMode>("actual");
+  const [weightSmoothKind, setWeightSmoothKind] =
+    useState<WeightSmoothKind>("ema");
+  const [weightSmoothPeriod, setWeightSmoothPeriod] =
+    useState<WeightSmoothPeriod>(7);
 
   const [fromDate, setFromDate] = useState<string>(() => {
     const today = jstYmd(new Date());
@@ -1084,34 +1115,24 @@ export default function SummaryPage() {
       return { date, weightKg: w };
     });
 
-    const avg3 = movingAvgLastNObservations(
-      base.map((x) => x.weightKg),
-      3
-    );
-    const avg5 = movingAvgLastNObservations(
-      base.map((x) => x.weightKg),
-      5
-    );
-    const avg7 = movingAvgLastNObservations(
-      base.map((x) => x.weightKg),
-      7
-    );
-    const avg10 = movingAvgLastNObservations(
-      base.map((x) => x.weightKg),
-      10
-    );
-    const avg14 = movingAvgLastNObservations(
-      base.map((x) => x.weightKg),
-      14
-    );
+    const baseValues = base.map((x) => x.weightKg);
+
+    const ma3 = movingAvgLastNObservations(baseValues, 3);
+    const ma7 = movingAvgLastNObservations(baseValues, 7);
+    const ma14 = movingAvgLastNObservations(baseValues, 14);
+
+    const ema3 = exponentialAvgLastNObservations(baseValues, 3);
+    const ema7 = exponentialAvgLastNObservations(baseValues, 7);
+    const ema14 = exponentialAvgLastNObservations(baseValues, 14);
 
     return base.map((x, i) => ({
       ...x,
-      weightAvg3: x.weightKg == null ? null : avg3[i],
-      weightAvg5: x.weightKg == null ? null : avg5[i],
-      weightAvg7: x.weightKg == null ? null : avg7[i],
-      weightAvg10: x.weightKg == null ? null : avg10[i],
-      weightAvg14: x.weightKg == null ? null : avg14[i],
+      ma3: x.weightKg == null ? null : ma3[i],
+      ma7: x.weightKg == null ? null : ma7[i],
+      ma14: x.weightKg == null ? null : ma14[i],
+      ema3: x.weightKg == null ? null : ema3[i],
+      ema7: x.weightKg == null ? null : ema7[i],
+      ema14: x.weightKg == null ? null : ema14[i],
     }));
   }, [dailyWeightMap, fullWeightRangeYmd.from, fullWeightRangeYmd.to]);
 
@@ -1119,18 +1140,30 @@ export default function SummaryPage() {
     return weightSeriesForChart.map((d) => {
       let value: number | null = d.weightKg;
 
-      if (weightDisplayMode === "ma3") value = d.weightAvg3;
-      else if (weightDisplayMode === "ma5") value = d.weightAvg5;
-      else if (weightDisplayMode === "ma7") value = d.weightAvg7;
-      else if (weightDisplayMode === "ma10") value = d.weightAvg10;
-      else if (weightDisplayMode === "ma14") value = d.weightAvg14;
+      if (weightSmoothKind === "ema") {
+        if (weightSmoothPeriod === 3) value = d.ema3;
+        else if (weightSmoothPeriod === 7) value = d.ema7;
+        else value = d.ema14;
+      } else if (weightSmoothKind === "ma") {
+        if (weightSmoothPeriod === 3) value = d.ma3;
+        else if (weightSmoothPeriod === 7) value = d.ma7;
+        else value = d.ma14;
+      }
 
       return {
         date: d.date,
         value,
       };
     });
-  }, [weightSeriesForChart, weightDisplayMode]);
+  }, [weightSeriesForChart, weightSmoothKind, weightSmoothPeriod]);
+
+  const weightSeriesLabel = useMemo(() => {
+    return getWeightSeriesLabel(weightSmoothKind, weightSmoothPeriod);
+  }, [weightSmoothKind, weightSmoothPeriod]);
+
+  const weightSeriesColor = useMemo(() => {
+    return getWeightSeriesColor(weightSmoothKind, weightSmoothPeriod);
+  }, [weightSmoothKind, weightSmoothPeriod]);
 
   const dailyKcalSeriesAll = useMemo(() => {
     const allDates = buildDateSeriesYmd(fullMealRangeYmd.from, fullMealRangeYmd.to);
@@ -1184,12 +1217,10 @@ export default function SummaryPage() {
   const weightChartHeight = 380;
 
   const mealPlotTop = 14;
-  const mealPlotHeightRatio = 0.74;
-  const mealPlotHeight = groupChartHeight * mealPlotHeightRatio;
+  const mealPlotHeight = groupChartHeight * 0.74;
 
   const weightPlotTop = 14;
-  const weightPlotHeightRatio = 0.7;
-  const weightPlotHeight = weightChartHeight * weightPlotHeightRatio;
+  const weightPlotHeight = weightChartHeight * 0.7;
 
   const maxGroup = useMemo(() => {
     return Math.max(0, ...grouped15All.map((g) => Number(g.totalNetKcal) || 0));
@@ -1302,7 +1333,14 @@ export default function SummaryPage() {
     });
 
     return () => cancelAnimationFrame(id);
-  }, [weightChartWidthPx, activeWeightSeries.length, weightLatestIndex, weightRangePreset, weightDisplayMode]);
+  }, [
+    weightChartWidthPx,
+    activeWeightSeries.length,
+    weightLatestIndex,
+    weightRangePreset,
+    weightSmoothKind,
+    weightSmoothPeriod,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1497,7 +1535,7 @@ export default function SummaryPage() {
       {
         const wData = new googleObj.visualization.DataTable();
         wData.addColumn("date", "日付");
-        wData.addColumn("number", getWeightModeLabel(weightDisplayMode));
+        wData.addColumn("number", weightSeriesLabel);
         wData.addColumn({ type: "number", role: "annotation" });
 
         wData.addRows(
@@ -1543,7 +1581,7 @@ export default function SummaryPage() {
           height: weightChartHeight,
           legend: { position: "none" },
           interpolateNulls: true,
-          colors: [getWeightModeColor(weightDisplayMode)],
+          colors: [weightSeriesColor],
           pointSize: weightRangeDays <= 31 ? 4 : 3,
           lineWidth: 2,
           hAxis: {
@@ -1588,7 +1626,8 @@ export default function SummaryPage() {
     weights,
     grouped15All,
     activeWeightSeries,
-    weightDisplayMode,
+    weightSeriesLabel,
+    weightSeriesColor,
     dailyKcalSeriesAll,
     showMealDataLabels,
     showWeightDataLabels,
@@ -1904,114 +1943,79 @@ export default function SummaryPage() {
       <div
         style={{
           marginTop: 8,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        {(["actual", "ema", "ma"] as WeightSmoothKind[]).map((kind) => {
+          const label =
+            kind === "actual" ? "実測値" : kind === "ema" ? "EMA" : "MA";
+          const active = weightSmoothKind === kind;
+
+          return (
+            <button
+              key={kind}
+              type="button"
+              onClick={() => setWeightSmoothKind(kind)}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 9999,
+                border: "1px solid #d4d4d8",
+                background: active ? "#18181b" : "#fff",
+                color: active ? "#fff" : "#18181b",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          marginTop: 8,
           marginBottom: 8,
           display: "flex",
           gap: 8,
           flexWrap: "wrap",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("actual")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "actual" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "actual" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          実測値
-        </button>
+        {([3, 7, 14] as WeightSmoothPeriod[]).map((period) => {
+          const active = weightSmoothPeriod === period;
+          const disabled = weightSmoothKind === "actual";
 
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("ma3")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "ma3" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "ma3" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          3MA
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("ma5")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "ma5" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "ma5" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          5MA
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("ma7")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "ma7" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "ma7" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          7MA
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("ma10")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "ma10" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "ma10" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          10MA
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setWeightDisplayMode("ma14")}
-          style={{
-            padding: "8px 14px",
-            borderRadius: 9999,
-            border: "1px solid #d4d4d8",
-            background: weightDisplayMode === "ma14" ? "#18181b" : "#fff",
-            color: weightDisplayMode === "ma14" ? "#fff" : "#18181b",
-            fontSize: 14,
-            fontWeight: 600,
-          }}
-        >
-          14MA
-        </button>
+          return (
+            <button
+              key={period}
+              type="button"
+              disabled={disabled}
+              onClick={() => setWeightSmoothPeriod(period)}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 9999,
+                border: "1px solid #d4d4d8",
+                background: active && !disabled ? "#18181b" : "#fff",
+                color: active && !disabled ? "#fff" : "#18181b",
+                fontSize: 14,
+                fontWeight: 600,
+                opacity: disabled ? 0.4 : 1,
+                cursor: disabled ? "not-allowed" : "pointer",
+              }}
+            >
+              {period}
+            </button>
+          );
+        })}
       </div>
 
       <div style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
         体重グラフ表示範囲：{weightRangeText}
       </div>
       <div style={{ marginTop: 4, color: "#666", fontSize: 14 }}>
-        表示系列：{getWeightModeLabel(weightDisplayMode)}
+        表示系列：{weightSeriesLabel}
       </div>
 
       <h3
@@ -2022,7 +2026,7 @@ export default function SummaryPage() {
           fontWeight: 700,
         }}
       >
-        体重（{getWeightModeLabel(weightDisplayMode)}）
+        体重（{weightSeriesLabel}）
       </h3>
       <ScrollableChartShell
         axis={
