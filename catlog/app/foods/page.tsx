@@ -77,6 +77,7 @@ export default function FoodsPage() {
     setLabel("");
     setG("");
     setK("");
+    setMsg("");
   };
 
   const startEdit = (food: Food) => {
@@ -155,149 +156,182 @@ export default function FoodsPage() {
   };
 
   return (
-    <main style={{ padding: 16, maxWidth: 1000 }}>
-      <h2>キャットフードDB 管理</h2>
+    <main className="mx-auto max-w-6xl space-y-4 px-4 py-4">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">キャットフードDB 管理</h2>
+        <div className="mt-1 text-sm text-zinc-600">
+          追加・再読み込み・フォーム初期化をボタン操作に統一しています。
+        </div>
+      </div>
 
       {msg && (
-        <div style={{ color: msg.startsWith("ERROR") ? "red" : "green", marginBottom: 12 }}>
+        <div
+          className={
+            msg.startsWith("ERROR")
+              ? "text-sm text-red-600"
+              : "text-sm text-emerald-700"
+          }
+        >
           {msg}
         </div>
       )}
 
-      <section
-        style={{
-          border: "1px solid #ccc",
-          padding: 12,
-          borderRadius: 8,
-          marginBottom: 16,
-        }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-          <h3 style={{ margin: 0 }}>{editingId ? "フード編集" : "新規フード追加"}</h3>
-          <button onClick={resetForm}>フォーム初期化</button>
+      <section className="card p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-lg font-semibold">{editingId ? "フード編集" : "新規フード追加"}</h3>
+          <button type="button" onClick={resetForm} className="btn">
+            フォーム初期化
+          </button>
         </div>
 
-        <div style={{ marginTop: 12, marginBottom: 8 }}>
-          <div>フード名</div>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{ width: "100%" }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <div>種別（任意）</div>
-          <input
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            placeholder="ドライ/ウェット/おやつ…"
-            style={{ width: "100%" }}
-          />
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <div>パッケージ表記（そのまま入力OK）</div>
-          <input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="例: 50gあたり180kcal"
-            style={{ width: "100%" }}
-          />
-          <small>※ 「nn g」「nn kcal」を含む文字なら概ねOK</small>
-        </div>
-
-        <div style={{ marginBottom: 8 }}>
-          <div>数値で入れる場合（任意）</div>
-          <div style={{ display: "flex", gap: 8 }}>
+        <div className="mt-4 grid gap-4">
+          <label className="block text-sm">
+            <div className="mb-1 font-medium text-zinc-700">フード名</div>
             <input
-              value={g}
-              onChange={(e) => setG(e.target.value)}
-              placeholder="g"
-              style={{ flex: 1 }}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="input"
             />
+          </label>
+
+          <label className="block text-sm">
+            <div className="mb-1 font-medium text-zinc-700">種別（任意）</div>
             <input
-              value={k}
-              onChange={(e) => setK(e.target.value)}
-              placeholder="kcal"
-              style={{ flex: 1 }}
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              placeholder="ドライ/ウェット/おやつ…"
+              className="input"
             />
+          </label>
+
+          <label className="block text-sm">
+            <div className="mb-1 font-medium text-zinc-700">パッケージ表記（そのまま入力OK）</div>
+            <input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="例: 50gあたり180kcal"
+              className="input"
+            />
+            <div className="mt-1 text-xs text-zinc-500">
+              ※ 「nn g」「nn kcal」を含む文字なら概ねOK
+            </div>
+          </label>
+
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="block text-sm">
+              <div className="mb-1 font-medium text-zinc-700">package g（任意）</div>
+              <input
+                value={g}
+                onChange={(e) => setG(e.target.value)}
+                placeholder="g"
+                className="input"
+              />
+            </label>
+
+            <label className="block text-sm">
+              <div className="mb-1 font-medium text-zinc-700">package kcal（任意）</div>
+              <input
+                value={k}
+                onChange={(e) => setK(e.target.value)}
+                placeholder="kcal"
+                className="input"
+              />
+            </label>
           </div>
-        </div>
 
-        <div style={{ marginBottom: 8 }}>
-          1gあたりkcal（自動計算）：<b>{kcalPerG ? kcalPerG.toFixed(6) : "－"}</b>
-        </div>
+          <div className="text-sm text-zinc-700">
+            1gあたりkcal（自動計算）：
+            <span className="ml-2 font-semibold">
+              {kcalPerG ? kcalPerG.toFixed(6) : "－"}
+            </span>
+          </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button
-            onClick={() =>
-              save().catch((e: unknown) =>
-                setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
-              )
-            }
-          >
-            {editingId ? "更新" : "追加"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                save().catch((e: unknown) =>
+                  setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+                )
+              }
+              className="rounded-2xl border border-emerald-200 bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+            >
+              {editingId ? "更新" : "追加"}
+            </button>
 
-          <button
-            onClick={() =>
-              load().catch((e: unknown) =>
-                setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
-              )
-            }
-          >
-            再読込
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                load().catch((e: unknown) =>
+                  setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+                )
+              }
+              className="btn"
+            >
+              再読み込み
+            </button>
+          </div>
         </div>
       </section>
 
-      <h3>登録済みフード</h3>
+      <section className="overflow-x-auto rounded-2xl border bg-white shadow-sm">
+        <div className="border-b bg-zinc-50 px-4 py-3 text-sm font-semibold text-zinc-700">
+          登録済みフード
+        </div>
 
-      <table border={1} cellPadding={6} style={{ width: "100%" }}>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>フード名</th>
-            <th>種別</th>
-            <th>package g</th>
-            <th>package kcal</th>
-            <th>1gあたりkcal</th>
-            <th>操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {foods.map((f) => (
-            <tr key={f.id}>
-              <td>{f.id}</td>
-              <td>{f.food_name}</td>
-              <td>{f.food_type ?? ""}</td>
-              <td>{f.package_g ?? ""}</td>
-              <td>{f.package_kcal ?? ""}</td>
-              <td>{Number(f.kcal_per_g).toFixed(6)}</td>
-              <td>
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  <button onClick={() => startEdit(f)}>編集</button>
-                  <button
-                    onClick={() =>
-                      del(f).catch((e: unknown) =>
-                        setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
-                      )
-                    }
-                  >
-                    削除
-                  </button>
-                </div>
-              </td>
+        <table className="min-w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-white text-zinc-700">
+              <th className="border-b px-3 py-3 text-left">ID</th>
+              <th className="border-b px-3 py-3 text-left">フード名</th>
+              <th className="border-b px-3 py-3 text-left">種別</th>
+              <th className="border-b px-3 py-3 text-right">package g</th>
+              <th className="border-b px-3 py-3 text-right">package kcal</th>
+              <th className="border-b px-3 py-3 text-right">1gあたりkcal</th>
+              <th className="border-b px-3 py-3 text-center">操作</th>
             </tr>
-          ))}
-          {foods.length === 0 && (
-            <tr>
-              <td colSpan={7}>まだ登録がありません</td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {foods.map((f) => (
+              <tr key={f.id} className="odd:bg-white even:bg-zinc-50/50">
+                <td className="border-b px-3 py-3">{f.id}</td>
+                <td className="border-b px-3 py-3">{f.food_name}</td>
+                <td className="border-b px-3 py-3">{f.food_type ?? ""}</td>
+                <td className="border-b px-3 py-3 text-right">{f.package_g ?? ""}</td>
+                <td className="border-b px-3 py-3 text-right">{f.package_kcal ?? ""}</td>
+                <td className="border-b px-3 py-3 text-right">
+                  {Number(f.kcal_per_g).toFixed(6)}
+                </td>
+                <td className="border-b px-3 py-3">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    <button type="button" onClick={() => startEdit(f)} className="btn px-3 py-1.5 text-xs">
+                      編集
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        del(f).catch((e: unknown) =>
+                          setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+                        )
+                      }
+                      className="rounded-2xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 shadow-sm transition hover:bg-red-100"
+                    >
+                      削除
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+            {foods.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-6 text-center text-sm text-zinc-500">
+                  まだ登録がありません
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </section>
     </main>
   );
 }

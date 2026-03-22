@@ -4,6 +4,32 @@ import { checkPin } from "../_pin";
 
 export const dynamic = "force-dynamic";
 
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function startOfTodayJST_asUTC(): Date {
+  const now = new Date();
+  const nowJST = new Date(now.getTime() + JST_OFFSET_MS);
+
+  return new Date(
+    Date.UTC(
+      nowJST.getUTCFullYear(),
+      nowJST.getUTCMonth(),
+      nowJST.getUTCDate()
+    )
+  );
+}
+
+function normalizeKind(raw: unknown): "stool" | "urine" | "both" | null {
+  const s = String(raw ?? "").trim();
+  if (!s) return null;
+
+  if (s === "うんち" || s === "stool" || s === "poop") return "stool";
+  if (s === "おしっこ" || s === "urine" || s === "pee") return "urine";
+  if (s === "両方" || s === "both") return "both";
+
+  return null;
+}
+
 export async function GET(req: Request) {
   const pinRes = checkPin(req);
   if (pinRes) return pinRes;
@@ -15,36 +41,27 @@ export async function GET(req: Request) {
       Math.min(90, Number(url.searchParams.get("days") ?? "14") || 14)
     );
 
-    const from = new Date();
-    from.setDate(from.getDate() - (days - 1));
-    const fromIso = from.toISOString();
+    // daily と同じ基準にそろえる
+    const start = startOfTodayJST_asUTC();
+    start.setUTCDate(start.getUTCDate() - (days - 1));
 
     const { data, error } = await supabaseAdmin
       .from("cat_elims")
       .select("id, dt, stool, urine, urine_ml, amount, note, vomit, kind, score")
-      .gte("dt", fromIso)
+      .gte("dt", start.toISOString())
       .order("dt", { ascending: false });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
     return NextResponse.json({ data: data ?? [] });
   } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+    return NextResponse.json(
+      { error: String(e?.message ?? e) },
+      { status: 500 }
+    );
   }
-}
-
-function normalizeKind(raw: unknown): "stool" | "urine" | "both" | null {
-  const s = String(raw ?? "").trim();
-  if (!s) return null;
-
-  // UI 側の文言ゆれ吸収
-  if (s === "うんち" || s === "stool" || s === "poop") return "stool";
-  if (s === "おしっこ" || s === "urine" || s === "pee") return "urine";
-  if (s === "両方" || s === "both") return "both";
-
-  // すでに正規化済みの値なら許可
-  if (s === "stool" || s === "urine" || s === "both") return s;
-
-  return null;
 }
 
 export async function POST(req: Request) {
@@ -53,12 +70,15 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json().catch(() => null);
-    if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
+    if (!body) {
+      return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
+    }
 
     const dt = body.dt ?? body.datetime ?? body.dateTime ?? body.at;
-    if (!dt) return NextResponse.json({ error: "dt is required" }, { status: 400 });
+    if (!dt) {
+      return NextResponse.json({ error: "dt is required" }, { status: 400 });
+    }
 
-    // ★ kind を必須化（ここが今回の原因）
     const kind = normalizeKind(body.kind);
     if (!kind) {
       return NextResponse.json(
@@ -67,11 +87,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // UI から stool/urine が来る場合もあれば kind だけの場合もあるので両対応
     let stool = body.stool ?? null;
     let urine = body.urine ?? null;
 
-    // kind が来たら stool/urine も整合させる（両方のときは両方◯）
     if (kind === "stool") {
       stool = stool ?? "stool";
       urine = null;
@@ -84,12 +102,16 @@ export async function POST(req: Request) {
     }
 
     const urine_ml =
-      body.urine_ml === undefined || body.urine_ml === null || String(body.urine_ml).trim() === ""
+      body.urine_ml === undefined ||
+      body.urine_ml === null ||
+      String(body.urine_ml).trim() === ""
         ? null
         : Number(body.urine_ml);
 
     const amount =
-      body.amount === undefined || body.amount === null || String(body.amount).trim() === ""
+      body.amount === undefined ||
+      body.amount === null ||
+      String(body.amount).trim() === ""
         ? null
         : Number(body.amount);
 
@@ -97,7 +119,9 @@ export async function POST(req: Request) {
     const vomit = body.vomit === true;
 
     const score =
-      body.score === undefined || body.score === null || String(body.score).trim() === ""
+      body.score === undefined ||
+      body.score === null ||
+      String(body.score).trim() === ""
         ? null
         : Number(body.score);
 
@@ -109,13 +133,19 @@ export async function POST(req: Request) {
       amount: Number.isFinite(amount as any) ? amount : null,
       note: note === "" ? null : note,
       vomit,
-      kind, // ★NOT NULL を必ず満たす
+      kind,
       score: Number.isFinite(score as any) ? score : null,
     });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
+    return NextResponse.json(
+      { error: String(e?.message ?? e) },
+      { status: 500 }
+    );
   }
 }
