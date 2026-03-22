@@ -74,6 +74,10 @@ function cls(...v: Array<string | false | null | undefined>) {
   return v.filter(Boolean).join(" ");
 }
 
+function hasDisplayValue(value: string | null | undefined) {
+  return value != null && String(value).trim() !== "";
+}
+
 function formatDateTime(iso: string | null) {
   if (!iso) return "—";
   return new Intl.DateTimeFormat("ja-JP", {
@@ -88,7 +92,7 @@ function formatDateTime(iso: string | null) {
 }
 
 function formatDateOnly(dateStr: string | null) {
-  if (!dateStr) return "—";
+  if (!dateStr) return null;
   return dateStr;
 }
 
@@ -187,6 +191,36 @@ export default function MedicalPage() {
     () => records.find((record) => record.id === selectedId) ?? null,
     [records, selectedId]
   );
+
+  const summaryFields = useMemo(() => {
+    if (!selected) return [];
+
+    const rows = [
+      { label: "病院名", value: selected.hospital_name },
+      { label: "担当医", value: selected.doctor_name },
+      { label: "次回予定", value: formatDateOnly(selected.next_visit_date) },
+      { label: "費用", value: selected.cost == null ? null : `${selected.cost} 円` },
+      { label: "体重", value: selected.weight_kg == null ? null : `${selected.weight_kg} kg` },
+      { label: "体温", value: selected.temperature_c == null ? null : `${selected.temperature_c} ℃` },
+    ];
+
+    return rows.filter((row) => hasDisplayValue(row.value));
+  }, [selected]);
+
+  const detailBlocks = useMemo(() => {
+    if (!selected) return [];
+
+    const blocks = [
+      { label: "主訴", value: selected.chief_complaint },
+      { label: "所見 / 診断", value: selected.assessment },
+      { label: "検査", value: selected.tests },
+      { label: "処置 / 処方 / 指示", value: selected.treatment },
+      { label: "投薬", value: selected.medication },
+      { label: "自由メモ", value: selected.note },
+    ];
+
+    return blocks.filter((block) => hasDisplayValue(block.value));
+  }, [selected]);
 
   async function loadRecords(nextSelectedId?: number | null) {
     setLoading(true);
@@ -525,23 +559,21 @@ export default function MedicalPage() {
                 </div>
               </div>
 
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <DetailField label="病院名" value={selected.hospital_name} />
-                <DetailField label="担当医" value={selected.doctor_name} />
-                <DetailField label="次回予定" value={formatDateOnly(selected.next_visit_date)} />
-                <DetailField label="費用" value={selected.cost == null ? null : `${selected.cost} 円`} />
-                <DetailField label="体重" value={selected.weight_kg == null ? null : `${selected.weight_kg} kg`} />
-                <DetailField label="体温" value={selected.temperature_c == null ? null : `${selected.temperature_c} ℃`} />
-              </div>
+              {summaryFields.length > 0 && (
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  {summaryFields.map((field) => (
+                    <DetailField key={field.label} label={field.label} value={field.value} />
+                  ))}
+                </div>
+              )}
 
-              <div className="mt-4 grid gap-4">
-                <DetailBlock label="主訴" value={selected.chief_complaint} />
-                <DetailBlock label="所見 / 診断" value={selected.assessment} />
-                <DetailBlock label="検査" value={selected.tests} />
-                <DetailBlock label="処置 / 処方 / 指示" value={selected.treatment ?? null} />
-                <DetailBlock label="投薬" value={selected.medication} />
-                <DetailBlock label="自由メモ" value={selected.note} />
-              </div>
+              {detailBlocks.length > 0 && (
+                <div className="mt-4 grid gap-4">
+                  {detailBlocks.map((block) => (
+                    <DetailBlock key={block.label} label={block.label} value={block.value} />
+                  ))}
+                </div>
+              )}
 
               <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
@@ -828,20 +860,24 @@ function Field({
 }
 
 function DetailField({ label, value }: { label: string; value: string | null }) {
+  if (!hasDisplayValue(value)) return null;
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
       <div className="text-xs font-semibold text-zinc-500">{label}</div>
-      <div className="mt-1 text-sm text-zinc-900">{value || "—"}</div>
+      <div className="mt-1 text-sm text-zinc-900">{value}</div>
     </div>
   );
 }
 
 function DetailBlock({ label, value }: { label: string; value: string | null }) {
+  if (!hasDisplayValue(value)) return null;
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
       <div className="text-xs font-semibold text-zinc-500">{label}</div>
       <div className="mt-2 whitespace-pre-wrap text-sm leading-6 text-zinc-900">
-        {value || "—"}
+        {value}
       </div>
     </div>
   );
