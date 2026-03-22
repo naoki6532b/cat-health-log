@@ -93,6 +93,8 @@ declare global {
 
 const FIXED_Y_AXIS_WIDTH = 124;
 const TOOLTIP_FONT_SIZE = 10;
+const CHART_PLOT_LEFT_PX = 8;
+const CHART_PLOT_WIDTH_RATIO = 0.92;
 
 let chartsReadyPromise: Promise<void> | null = null;
 
@@ -521,11 +523,12 @@ function getWeightRangePresetLabel(p: WeightRangePreset) {
   return "すべて";
 }
 
-function getWeightRequestRangeYmdByPreset(preset: WeightRangePreset): RangeYmd {
-  const today = jstYmd(new Date());
-
+function getWeightRequestRangeYmdByPreset(
+  preset: WeightRangePreset,
+  anchorYmd: string
+): RangeYmd {
   if (preset === "all") {
-    return { from: "2000-01-01", to: today };
+    return { from: "2000-01-01", to: anchorYmd };
   }
 
   const months =
@@ -548,8 +551,8 @@ function getWeightRequestRangeYmdByPreset(preset: WeightRangePreset): RangeYmd {
                     : 60;
 
   return {
-    from: addMonthsYmd(today, -months),
-    to: today,
+    from: addMonthsYmd(anchorYmd, -months),
+    to: anchorYmd,
   };
 }
 
@@ -591,6 +594,50 @@ function getAxisFontSize(days: number) {
 function formatAxisValue(n: number) {
   if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
   return n.toFixed(2).replace(/\.?0+$/, "");
+}
+
+function findLastNonNullIndex(values: Array<number | null>) {
+  for (let i = values.length - 1; i >= 0; i--) {
+    const v = values[i];
+    if (typeof v === "number" && Number.isFinite(v)) return i;
+  }
+  return 0;
+}
+
+function calcLatestAlignedScrollLeft(params: {
+  chartWidthPx: number;
+  viewportWidth: number;
+  totalCount: number;
+  lastIndex: number;
+  mode: "category" | "timeline";
+}) {
+  const { chartWidthPx, viewportWidth, totalCount, lastIndex, mode } = params;
+
+  if (viewportWidth <= 0 || chartWidthPx <= viewportWidth || totalCount <= 0) {
+    return 0;
+  }
+
+  const plotLeft = CHART_PLOT_LEFT_PX;
+  const plotWidth = chartWidthPx * CHART_PLOT_WIDTH_RATIO;
+  const safeLastIndex = clamp(lastIndex, 0, Math.max(0, totalCount - 1));
+
+  let x = plotLeft;
+
+  if (mode === "category") {
+    x =
+      plotLeft + plotWidth * ((safeLastIndex + 0.5) / Math.max(1, totalCount));
+  } else {
+    x =
+      totalCount <= 1
+        ? plotLeft
+        : plotLeft + plotWidth * (safeLastIndex / (totalCount - 1));
+  }
+
+  const rightPaddingPx = clamp(Math.round(viewportWidth * 0.06), 24, 56);
+  const desired = x - (viewportWidth - rightPaddingPx);
+  const maxScrollLeft = Math.max(0, chartWidthPx - viewportWidth);
+
+  return clamp(Math.round(desired), 0, maxScrollLeft);
 }
 
 type FixedYAxisProps = {
@@ -802,36 +849,6 @@ export default function SummaryPage() {
     };
   }, []);
 
-  const activeRangeYmd = useMemo(() => {
-    if (preset === "custom") {
-      return { from: fromDate, to: toDate, days: null as number | null };
-    }
-
-    const days = presetDays(preset);
-    const today = jstYmd(new Date());
-    const to = addDaysYmd(today, -offsetDays);
-    const from = addDaysYmd(to, -(days - 1));
-
-    return { from, to, days };
-  }, [preset, fromDate, toDate, offsetDays]);
-
-  const mealRangeDays = useMemo(() => {
-    return daysBetweenYmd(activeRangeYmd.from, activeRangeYmd.to);
-  }, [activeRangeYmd.from, activeRangeYmd.to]);
-
-  const showMealDataLabels = useMemo(() => {
-    return mealRangeDays < 30;
-  }, [mealRangeDays]);
-
-  const showWeightDataLabels = useMemo(() => {
-    return (
-      weightRangePreset === "1m" ||
-      weightRangePreset === "2m" ||
-      weightRangePreset === "3m" ||
-      weightRangePreset === "6m"
-    );
-  }, [weightRangePreset]);
-
   const load = async () => {
     setMsg("");
 
@@ -868,6 +885,46 @@ export default function SummaryPage() {
       setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
     );
   }, []);
+
+  const latestMealDate = useMemo(() => {
+    if (rows.length === 0) return jstYmd(new Date());
+
+    let latest = "2000-01-01";
+    for (const r of rows) {
+      const d = toDateKey(r.dt);
+      if (d > latest) latest = d;
+    }
+    return latest;
+  }, [rows]);
+
+  const activeRangeYmd = useMemo(() => {
+    if (preset === "custom") {
+      return { from: fromDate, to: toDate, days: null as number | null };
+    }
+
+    const days = presetDays(preset);
+    const to = addDaysYmd(latestMealDate, -offsetDays);
+    const from = addDaysYmd(to, -(days - 1));
+
+    return { from, to, days };
+  }, [preset, fromDate, toDate, offsetDays, latestMealDate]);
+
+  const mealRangeDays = useMemo(() => {
+    return daysBetweenYmd(activeRangeYmd.from, activeRangeYmd.to);
+  }, [activeRangeYmd.from, activeRangeYmd.to]);
+
+  const showMealDataLabels = useMemo(() => {
+    return mealRangeDays < 30;
+  }, [mealRangeDays]);
+
+  const showWeightDataLabels = useMemo(() => {
+    return (
+      weightRangePreset === "1m" ||
+      weightRangePreset === "2m" ||
+      weightRangePreset === "3m" ||
+      weightRangePreset === "6m"
+    );
+  }, [weightRangePreset]);
 
   const visibleMealRows = useMemo(() => {
     return rows.filter((r) => {
@@ -960,9 +1017,8 @@ export default function SummaryPage() {
   }, [dailyAll, activeRangeYmd.from, activeRangeYmd.to]);
 
   const fullMealRangeYmd = useMemo(() => {
-    const today = jstYmd(new Date());
-
     if (dailyAll.length === 0) {
+      const today = jstYmd(new Date());
       return {
         from: addDaysYmd(today, -6),
         to: today,
@@ -990,24 +1046,21 @@ export default function SummaryPage() {
     return map;
   }, [weights]);
 
-  const firstWeightDate = useMemo(() => {
+  const latestWeightDate = useMemo(() => {
     const keys = Array.from(dailyWeightMap.keys()).sort();
-    return keys[0] ?? jstYmd(new Date());
+    return keys[keys.length - 1] ?? jstYmd(new Date());
   }, [dailyWeightMap]);
 
   const fullWeightRangeYmd = useMemo(() => {
     return {
-      from: firstWeightDate,
-      to: jstYmd(new Date()),
+      from: Array.from(dailyWeightMap.keys()).sort()[0] ?? latestWeightDate,
+      to: latestWeightDate,
     };
-  }, [firstWeightDate]);
+  }, [dailyWeightMap, latestWeightDate]);
 
   const weightInitialRangeYmd = useMemo(() => {
-    if (weightRangePreset === "all") {
-      return fullWeightRangeYmd;
-    }
-    return getWeightRequestRangeYmdByPreset(weightRangePreset);
-  }, [weightRangePreset, fullWeightRangeYmd]);
+    return getWeightRequestRangeYmdByPreset(weightRangePreset, latestWeightDate);
+  }, [weightRangePreset, latestWeightDate]);
 
   const weightRangeDays = useMemo(() => {
     return daysBetweenYmd(weightInitialRangeYmd.from, weightInitialRangeYmd.to);
@@ -1126,24 +1179,17 @@ export default function SummaryPage() {
     );
   }, [activeWeightSeries.length, weightRangeDays, weightViewportWidth]);
 
-  useEffect(() => {
-    if (groupScrollWrapRef.current) groupScrollWrapRef.current.scrollLeft = 0;
-    if (dailyScrollWrapRef.current) dailyScrollWrapRef.current.scrollLeft = 0;
-  }, [activeRangeYmd.from, activeRangeYmd.to]);
-
-  useEffect(() => {
-    if (weightScrollWrapRef.current) weightScrollWrapRef.current.scrollLeft = 0;
-  }, [weightRangePreset]);
-
   const groupChartHeight = 360;
   const dailyChartHeight = 360;
   const weightChartHeight = 380;
 
-  const mealPlotTop = mealRangeDays <= 7 ? 34 : 40;
-  const mealPlotHeight = groupChartHeight * 0.68;
+  const mealPlotTop = 14;
+  const mealPlotHeightRatio = 0.74;
+  const mealPlotHeight = groupChartHeight * mealPlotHeightRatio;
 
-  const weightPlotTop = weightRangeDays <= 31 ? 34 : 40;
-  const weightPlotHeight = weightChartHeight * 0.64;
+  const weightPlotTop = 14;
+  const weightPlotHeightRatio = 0.7;
+  const weightPlotHeight = weightChartHeight * weightPlotHeightRatio;
 
   const maxGroup = useMemo(() => {
     return Math.max(0, ...grouped15All.map((g) => Number(g.totalNetKcal) || 0));
@@ -1192,6 +1238,72 @@ export default function SummaryPage() {
     return buildWeightTicks(vMinWeight, vMaxWeight);
   }, [vMinWeight, vMaxWeight]);
 
+  const groupLatestIndex = useMemo(() => {
+    return Math.max(0, grouped15All.length - 1);
+  }, [grouped15All.length]);
+
+  const dailyLatestIndex = useMemo(() => {
+    const merged = dailyKcalSeriesAll.kcal.map((v, i) =>
+      v != null ? v : dailyKcalSeriesAll.avg7[i]
+    );
+    return findLastNonNullIndex(merged);
+  }, [dailyKcalSeriesAll.kcal, dailyKcalSeriesAll.avg7]);
+
+  const weightLatestIndex = useMemo(() => {
+    return findLastNonNullIndex(activeWeightSeries.map((d) => d.value));
+  }, [activeWeightSeries]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const wrap = groupScrollWrapRef.current;
+      if (!wrap) return;
+
+      wrap.scrollLeft = calcLatestAlignedScrollLeft({
+        chartWidthPx: groupChartWidthPx,
+        viewportWidth: wrap.clientWidth,
+        totalCount: grouped15All.length,
+        lastIndex: groupLatestIndex,
+        mode: "category",
+      });
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [groupChartWidthPx, grouped15All.length, groupLatestIndex, activeRangeYmd.to]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const wrap = dailyScrollWrapRef.current;
+      if (!wrap) return;
+
+      wrap.scrollLeft = calcLatestAlignedScrollLeft({
+        chartWidthPx: dailyChartWidthPx,
+        viewportWidth: wrap.clientWidth,
+        totalCount: dailyKcalSeriesAll.dates.length,
+        lastIndex: dailyLatestIndex,
+        mode: "timeline",
+      });
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [dailyChartWidthPx, dailyKcalSeriesAll.dates.length, dailyLatestIndex, activeRangeYmd.to]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const wrap = weightScrollWrapRef.current;
+      if (!wrap) return;
+
+      wrap.scrollLeft = calcLatestAlignedScrollLeft({
+        chartWidthPx: weightChartWidthPx,
+        viewportWidth: wrap.clientWidth,
+        totalCount: activeWeightSeries.length,
+        lastIndex: weightLatestIndex,
+        mode: "timeline",
+      });
+    });
+
+    return () => cancelAnimationFrame(id);
+  }, [weightChartWidthPx, activeWeightSeries.length, weightLatestIndex, weightRangePreset, weightDisplayMode]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -1212,9 +1324,7 @@ export default function SummaryPage() {
       const googleObj = window.google;
       if (!googleObj) return;
 
-      const mealTitleFontSize = getChartTitleFontSize(mealRangeDays);
       const mealAxisFontSize = getAxisFontSize(mealRangeDays);
-      const weightTitleFontSize = getChartTitleFontSize(weightRangeDays);
       const weightAxisFontSize = getAxisFontSize(weightRangeDays);
 
       {
@@ -1248,10 +1358,10 @@ export default function SummaryPage() {
         chart.draw(gData, {
           backgroundColor: "#f5f6f8",
           chartArea: {
-            left: 8,
+            left: CHART_PLOT_LEFT_PX,
             top: mealPlotTop,
             width: "92%",
-            height: "68%",
+            height: "74%",
             backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
           },
           annotations: {
@@ -1267,11 +1377,6 @@ export default function SummaryPage() {
             textStyle: {
               fontSize: TOOLTIP_FONT_SIZE,
             },
-          },
-          title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
-          titleTextStyle: {
-            fontSize: mealTitleFontSize,
-            bold: true,
           },
           height: groupChartHeight,
           legend: { position: "none" },
@@ -1333,10 +1438,10 @@ export default function SummaryPage() {
         chart.draw(dData, {
           backgroundColor: "#f5f6f8",
           chartArea: {
-            left: 8,
+            left: CHART_PLOT_LEFT_PX,
             top: mealPlotTop,
             width: "92%",
-            height: "68%",
+            height: "74%",
             backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
           },
           annotations: {
@@ -1352,11 +1457,6 @@ export default function SummaryPage() {
             textStyle: {
               fontSize: TOOLTIP_FONT_SIZE,
             },
-          },
-          title: "日別 実食カロリー（棒）＋ 7日平均（線）",
-          titleTextStyle: {
-            fontSize: mealTitleFontSize,
-            bold: true,
           },
           height: dailyChartHeight,
           legend: {
@@ -1420,10 +1520,10 @@ export default function SummaryPage() {
         chart.draw(wData, {
           backgroundColor: "#f5f6f8",
           chartArea: {
-            left: 8,
+            left: CHART_PLOT_LEFT_PX,
             top: weightPlotTop,
             width: "92%",
-            height: "64%",
+            height: "70%",
             backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
           },
           annotations: {
@@ -1439,11 +1539,6 @@ export default function SummaryPage() {
             textStyle: {
               fontSize: TOOLTIP_FONT_SIZE,
             },
-          },
-          title: `体重（${getWeightModeLabel(weightDisplayMode)}）`,
-          titleTextStyle: {
-            fontSize: weightTitleFontSize,
-            bold: true,
           },
           height: weightChartHeight,
           legend: { position: "none" },
@@ -1523,9 +1618,8 @@ export default function SummaryPage() {
 
     if (p !== "custom") return;
 
-    const today = jstYmd(new Date());
-    setToDate(today);
-    setFromDate(addDaysYmd(today, -6));
+    setToDate(latestMealDate);
+    setFromDate(addDaysYmd(latestMealDate, -6));
   };
 
   const onCustomApply = () => {
@@ -1699,7 +1793,16 @@ export default function SummaryPage() {
         現在の表示範囲データ：給餌 {visibleMealRows.length} 件 / 体重 {visibleWeightRows.length} 件
       </div>
 
-      <h3 style={{ marginTop: 16 }}>15分ルール：1回分の実食kcal</h3>
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: getChartTitleFontSize(mealRangeDays),
+          fontWeight: 700,
+        }}
+      >
+        15分ルール：1回分の実食kcal（朝/昼/夜/深夜）
+      </h3>
       <ScrollableChartShell
         axis={
           <FixedYAxis
@@ -1719,7 +1822,16 @@ export default function SummaryPage() {
         chartHeightPx={groupChartHeight}
       />
 
-      <h3 style={{ marginTop: 16 }}>日別 実食カロリー＆7日平均</h3>
+      <h3
+        style={{
+          marginTop: 16,
+          marginBottom: 8,
+          fontSize: getChartTitleFontSize(mealRangeDays),
+          fontWeight: 700,
+        }}
+      >
+        日別 実食カロリー（棒）＋ 7日平均（線）
+      </h3>
       <ScrollableChartShell
         axis={
           <FixedYAxis
@@ -1739,9 +1851,7 @@ export default function SummaryPage() {
         chartHeightPx={dailyChartHeight}
       />
 
-      <h3 style={{ marginTop: 16 }}>体重の推移</h3>
-
-      <div style={{ marginTop: 8, color: "#666", fontSize: 14 }}>
+      <div style={{ marginTop: 16, color: "#666", fontSize: 14 }}>
         体重グラフ縮尺
       </div>
 
@@ -1904,6 +2014,16 @@ export default function SummaryPage() {
         表示系列：{getWeightModeLabel(weightDisplayMode)}
       </div>
 
+      <h3
+        style={{
+          marginTop: 12,
+          marginBottom: 8,
+          fontSize: getChartTitleFontSize(weightRangeDays),
+          fontWeight: 700,
+        }}
+      >
+        体重（{getWeightModeLabel(weightDisplayMode)}）
+      </h3>
       <ScrollableChartShell
         axis={
           <FixedYAxis
