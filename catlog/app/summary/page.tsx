@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode, RefObject } from "react";
 import { apiFetch } from "@/lib/api";
 
 type MealRow = {
@@ -89,6 +90,9 @@ declare global {
     google?: GoogleChartsType;
   }
 }
+
+const FIXED_Y_AXIS_WIDTH = 124;
+const TOOLTIP_FONT_SIZE = 10;
 
 let chartsReadyPromise: Promise<void> | null = null;
 
@@ -444,7 +448,13 @@ function getMealPresetLabel(p: Preset) {
 
 function buildWeightTicks(min: number, max: number) {
   const span = max - min;
-  const step = span > 12 ? 1 : 0.05;
+
+  let step = 0.1;
+  if (span > 12) step = 1;
+  else if (span > 6) step = 0.5;
+  else if (span > 3) step = 0.2;
+  else step = 0.1;
+
   const start = Math.floor(min / step) * step;
   const end = Math.ceil(max / step) * step;
 
@@ -454,6 +464,29 @@ function buildWeightTicks(min: number, max: number) {
     if (vv >= min - 1e-9 && vv <= max + 1e-9) out.push(vv);
     if (out.length > 80) break;
   }
+  return out;
+}
+
+function buildKcalTicks(min: number, max: number) {
+  const span = max - min;
+  let step = 20;
+
+  if (span > 1200) step = 200;
+  else if (span > 800) step = 100;
+  else if (span > 400) step = 50;
+  else if (span > 200) step = 25;
+  else step = 20;
+
+  const out: number[] = [];
+  const start = Math.floor(min / step) * step;
+  const end = Math.ceil(max / step) * step;
+
+  for (let v = start; v <= end + 1e-9; v += step) {
+    const vv = Math.round(v * 10) / 10;
+    if (vv >= min - 1e-9 && vv <= max + 1e-9) out.push(vv);
+    if (out.length > 100) break;
+  }
+
   return out;
 }
 
@@ -553,6 +586,162 @@ function getAxisFontSize(days: number) {
   if (days <= 7) return 9;
   if (days <= 30) return 10;
   return 11;
+}
+
+function formatAxisValue(n: number) {
+  if (Math.abs(n - Math.round(n)) < 1e-9) return String(Math.round(n));
+  return n.toFixed(2).replace(/\.?0+$/, "");
+}
+
+type FixedYAxisProps = {
+  title: string;
+  height: number;
+  plotTop: number;
+  plotHeight: number;
+  min: number;
+  max: number;
+  ticks: number[];
+  fontSize: number;
+  borderColor?: string;
+  backgroundColor?: string;
+};
+
+function FixedYAxis({
+  title,
+  height,
+  plotTop,
+  plotHeight,
+  min,
+  max,
+  ticks,
+  fontSize,
+  borderColor = "#ddd",
+  backgroundColor = "#f5f6f8",
+}: FixedYAxisProps) {
+  const safeSpan = max - min === 0 ? 1 : max - min;
+
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: FIXED_Y_AXIS_WIDTH,
+        height,
+        background: backgroundColor,
+        border: `1px solid ${borderColor}`,
+        borderRight: "none",
+        borderRadius: "16px 0 0 16px",
+        overflow: "hidden",
+        flex: `0 0 ${FIXED_Y_AXIS_WIDTH}px`,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 14,
+          top: "50%",
+          transform: "translateY(-50%) rotate(-90deg)",
+          transformOrigin: "left top",
+          fontSize: fontSize + 2,
+          fontStyle: "italic",
+          color: "#333",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {title}
+      </div>
+
+      {ticks.map((tick, i) => {
+        const ratio = (tick - min) / safeSpan;
+        const y = plotTop + plotHeight * (1 - ratio);
+
+        return (
+          <div key={`${tick}-${i}`}>
+            <div
+              style={{
+                position: "absolute",
+                right: 10,
+                top: y - (fontSize + 2) / 2,
+                fontSize,
+                color: "#444",
+                lineHeight: 1,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {formatAxisValue(tick)}
+            </div>
+
+            <div
+              style={{
+                position: "absolute",
+                right: 0,
+                top: y,
+                width: 6,
+                borderTop: "1px solid #777",
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type ScrollableChartShellProps = {
+  axis: ReactNode;
+  scrollRef: RefObject<HTMLDivElement | null>;
+  chartRef: RefObject<HTMLDivElement | null>;
+  chartWidthPx: number;
+  chartHeightPx: number;
+};
+
+function ScrollableChartShell({
+  axis,
+  scrollRef,
+  chartRef,
+  chartWidthPx,
+  chartHeightPx,
+}: ScrollableChartShellProps) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: `${FIXED_Y_AXIS_WIDTH}px minmax(0,1fr)`,
+        alignItems: "stretch",
+      }}
+    >
+      {axis}
+
+      <div
+        style={{
+          minWidth: 0,
+          background: "#f5f6f8",
+          border: "1px solid #ddd",
+          borderLeft: "none",
+          borderRadius: "0 16px 16px 0",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          ref={scrollRef}
+          style={{
+            overflowX: "auto",
+            overflowY: "hidden",
+            paddingBottom: 8,
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          <div
+            ref={chartRef}
+            style={{
+              width: `${chartWidthPx}px`,
+              minWidth: "100%",
+              minHeight: chartHeightPx,
+            }}
+          />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function SummaryPage() {
@@ -946,6 +1135,63 @@ export default function SummaryPage() {
     if (weightScrollWrapRef.current) weightScrollWrapRef.current.scrollLeft = 0;
   }, [weightRangePreset]);
 
+  const groupChartHeight = 360;
+  const dailyChartHeight = 360;
+  const weightChartHeight = 380;
+
+  const mealPlotTop = mealRangeDays <= 7 ? 34 : 40;
+  const mealPlotHeight = groupChartHeight * 0.68;
+
+  const weightPlotTop = weightRangeDays <= 31 ? 34 : 40;
+  const weightPlotHeight = weightChartHeight * 0.64;
+
+  const maxGroup = useMemo(() => {
+    return Math.max(0, ...grouped15All.map((g) => Number(g.totalNetKcal) || 0));
+  }, [grouped15All]);
+
+  const vMaxGroup = useMemo(() => {
+    return maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
+  }, [maxGroup]);
+
+  const groupTicks = useMemo(() => {
+    return buildKcalTicks(0, vMaxGroup);
+  }, [vMaxGroup]);
+
+  const maxDaily = useMemo(() => {
+    return Math.max(0, ...dailyKcalSeriesAll.kcal.map((v) => Number(v) || 0));
+  }, [dailyKcalSeriesAll.kcal]);
+
+  const vMaxDaily = useMemo(() => {
+    return maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
+  }, [maxDaily]);
+
+  const dailyTicks = useMemo(() => {
+    return buildKcalTicks(0, vMaxDaily);
+  }, [vMaxDaily]);
+
+  const weightVals = useMemo(() => {
+    return activeWeightSeries
+      .map((d) => (d.value == null ? null : Number(d.value)))
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
+  }, [activeWeightSeries]);
+
+  const vMinWeight = useMemo(() => {
+    const minW = weightVals.length ? Math.min(...weightVals) : Number.NaN;
+    return Number.isFinite(minW) && minW < 2.5 ? 0 : 2.5;
+  }, [weightVals]);
+
+  const vMaxWeight = useMemo(() => {
+    const maxW = weightVals.length ? Math.max(...weightVals) : Number.NaN;
+    if (Number.isFinite(maxW) && maxW > 5.0) {
+      return Math.ceil((maxW + 1.0) * 10) / 10;
+    }
+    return 5.0;
+  }, [weightVals]);
+
+  const weightTicks = useMemo(() => {
+    return buildWeightTicks(vMinWeight, vMaxWeight);
+  }, [vMinWeight, vMaxWeight]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -966,44 +1212,10 @@ export default function SummaryPage() {
       const googleObj = window.google;
       if (!googleObj) return;
 
-      const maxGroup = Math.max(
-        0,
-        ...grouped15All.map((g) => Number(g.totalNetKcal) || 0)
-      );
-      const vMaxGroup =
-        maxGroup <= 200 ? 200 : (Math.floor(maxGroup / 100) + 1) * 100;
-
-      const maxDaily = Math.max(
-        0,
-        ...dailyKcalSeriesAll.kcal.map((v) => Number(v) || 0)
-      );
-      const vMaxDaily =
-        maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
-
       const mealTitleFontSize = getChartTitleFontSize(mealRangeDays);
       const mealAxisFontSize = getAxisFontSize(mealRangeDays);
       const weightTitleFontSize = getChartTitleFontSize(weightRangeDays);
       const weightAxisFontSize = getAxisFontSize(weightRangeDays);
-
-      const baseChartStyle = {
-        backgroundColor: "#f5f6f8",
-        chartArea: {
-          left: mealRangeDays <= 7 ? 52 : 60,
-          top: mealRangeDays <= 7 ? 34 : 40,
-          width: mealRangeDays <= 7 ? "88%" : "85%",
-          height: "68%",
-          backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
-        },
-        annotations: {
-          alwaysOutside: false,
-          stem: { length: 5 },
-          textStyle: {
-            fontSize: mealRangeDays <= 7 ? 9 : 10,
-            color: "#333",
-            bold: false,
-          },
-        },
-      } as const;
 
       {
         const gData = new googleObj.visualization.DataTable();
@@ -1034,17 +1246,43 @@ export default function SummaryPage() {
         );
 
         chart.draw(gData, {
-          ...baseChartStyle,
+          backgroundColor: "#f5f6f8",
+          chartArea: {
+            left: 8,
+            top: mealPlotTop,
+            width: "92%",
+            height: "68%",
+            backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
+          },
+          annotations: {
+            alwaysOutside: false,
+            stem: { length: 5 },
+            textStyle: {
+              fontSize: mealRangeDays <= 7 ? 9 : 10,
+              color: "#333",
+              bold: false,
+            },
+          },
+          tooltip: {
+            textStyle: {
+              fontSize: TOOLTIP_FONT_SIZE,
+            },
+          },
           title: "15分ルール：1回分の実食kcal（朝/昼/夜/深夜）",
           titleTextStyle: {
             fontSize: mealTitleFontSize,
             bold: true,
           },
-          height: 360,
+          height: groupChartHeight,
           legend: { position: "none" },
           colors: ["#6ec6ff"],
           bar: {
-            groupWidth: mealRangeDays <= 7 ? "62%" : mealRangeDays <= 30 ? "72%" : "78%",
+            groupWidth:
+              mealRangeDays <= 7
+                ? "62%"
+                : mealRangeDays <= 30
+                  ? "72%"
+                  : "78%",
           },
           hAxis: {
             slantedText: false,
@@ -1056,10 +1294,9 @@ export default function SummaryPage() {
             textStyle: { fontSize: mealAxisFontSize },
           },
           vAxis: {
-            title: "kcal",
-            titleTextStyle: { fontSize: mealAxisFontSize + 1, italic: true },
-            textStyle: { fontSize: mealAxisFontSize },
+            textPosition: "none",
             viewWindow: { min: 0, max: vMaxGroup },
+            ticks: groupTicks,
             gridlines: { color: "#86f8f6" },
             minorGridlines: { color: "#d0f6ef", count: 4 },
           },
@@ -1094,13 +1331,34 @@ export default function SummaryPage() {
         );
 
         chart.draw(dData, {
-          ...baseChartStyle,
+          backgroundColor: "#f5f6f8",
+          chartArea: {
+            left: 8,
+            top: mealPlotTop,
+            width: "92%",
+            height: "68%",
+            backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
+          },
+          annotations: {
+            alwaysOutside: false,
+            stem: { length: 5 },
+            textStyle: {
+              fontSize: mealRangeDays <= 7 ? 9 : 10,
+              color: "#333",
+              bold: false,
+            },
+          },
+          tooltip: {
+            textStyle: {
+              fontSize: TOOLTIP_FONT_SIZE,
+            },
+          },
           title: "日別 実食カロリー（棒）＋ 7日平均（線）",
           titleTextStyle: {
             fontSize: mealTitleFontSize,
             bold: true,
           },
-          height: 360,
+          height: dailyChartHeight,
           legend: {
             position: "bottom",
             textStyle: { fontSize: mealAxisFontSize },
@@ -1109,7 +1367,12 @@ export default function SummaryPage() {
           series: { 0: { type: "bars" }, 1: { type: "line" } },
           colors: ["#4facfe", "#7bd3ff"],
           bar: {
-            groupWidth: mealRangeDays <= 7 ? "56%" : mealRangeDays <= 30 ? "66%" : "76%",
+            groupWidth:
+              mealRangeDays <= 7
+                ? "56%"
+                : mealRangeDays <= 30
+                  ? "66%"
+                  : "76%",
           },
           hAxis: {
             ticks: buildCompactDateAxisTicksByWidth(
@@ -1122,10 +1385,9 @@ export default function SummaryPage() {
             maxAlternation: 1,
           },
           vAxis: {
-            title: "kcal",
-            titleTextStyle: { fontSize: mealAxisFontSize + 1, italic: true },
-            textStyle: { fontSize: mealAxisFontSize },
+            textPosition: "none",
             viewWindow: { min: 0, max: vMaxDaily },
+            ticks: dailyTicks,
             gridlines: { color: "#8cf4df" },
             minorGridlines: { color: "#d5f3f7", count: 4 },
           },
@@ -1155,30 +1417,12 @@ export default function SummaryPage() {
           weightChartRef.current
         );
 
-        const weightVals = activeWeightSeries
-          .map((d) => (d.value == null ? null : Number(d.value)))
-          .filter(
-            (v): v is number => typeof v === "number" && Number.isFinite(v)
-          );
-
-        const minW = weightVals.length ? Math.min(...weightVals) : Number.NaN;
-        const maxW = weightVals.length ? Math.max(...weightVals) : Number.NaN;
-
-        const vMinWeight = Number.isFinite(minW) && minW < 2.5 ? 0 : 2.5;
-
-        let vMaxWeight = 5.0;
-        if (Number.isFinite(maxW) && maxW > 5.0) {
-          vMaxWeight = Math.ceil((maxW + 1.0) * 10) / 10;
-        }
-
-        const weightTicks = buildWeightTicks(vMinWeight, vMaxWeight);
-
         chart.draw(wData, {
           backgroundColor: "#f5f6f8",
           chartArea: {
-            left: weightRangeDays <= 31 ? 52 : 60,
-            top: weightRangeDays <= 31 ? 34 : 40,
-            width: weightRangeDays <= 31 ? "88%" : "85%",
+            left: 8,
+            top: weightPlotTop,
+            width: "92%",
             height: "64%",
             backgroundColor: { fill: "#ffffff", rx: 14, ry: 14 },
           },
@@ -1191,12 +1435,17 @@ export default function SummaryPage() {
               bold: false,
             },
           },
+          tooltip: {
+            textStyle: {
+              fontSize: TOOLTIP_FONT_SIZE,
+            },
+          },
           title: `体重（${getWeightModeLabel(weightDisplayMode)}）`,
           titleTextStyle: {
             fontSize: weightTitleFontSize,
             bold: true,
           },
-          height: 380,
+          height: weightChartHeight,
           legend: { position: "none" },
           interpolateNulls: true,
           colors: [getWeightModeColor(weightDisplayMode)],
@@ -1215,13 +1464,11 @@ export default function SummaryPage() {
             minorGridlines: { color: "#f2f2f2" },
           },
           vAxis: {
-            title: "kg",
-            titleTextStyle: { fontSize: weightAxisFontSize + 1, italic: true },
-            textStyle: { fontSize: weightAxisFontSize },
+            textPosition: "none",
             viewWindow: { min: vMinWeight, max: vMaxWeight },
+            ticks: weightTicks,
             gridlines: { color: "#cffff5" },
             minorGridlines: { color: "#1188b0", count: 3 },
-            ticks: weightTicks,
           },
         });
       }
@@ -1259,6 +1506,15 @@ export default function SummaryPage() {
     fullMealRangeYmd.to,
     fullWeightRangeYmd.from,
     fullWeightRangeYmd.to,
+    groupTicks,
+    dailyTicks,
+    vMaxGroup,
+    vMaxDaily,
+    weightTicks,
+    vMinWeight,
+    vMaxWeight,
+    mealPlotTop,
+    weightPlotTop,
   ]);
 
   const onPreset = (p: Preset) => {
@@ -1444,50 +1700,44 @@ export default function SummaryPage() {
       </div>
 
       <h3 style={{ marginTop: 16 }}>15分ルール：1回分の実食kcal</h3>
-      <div
-        ref={groupScrollWrapRef}
-        style={{
-          overflowX: "auto",
-          overflowY: "hidden",
-          paddingBottom: 8,
-          WebkitOverflowScrolling: "touch",
-        }}
-      >
-        <div
-          ref={groupChartRef}
-          style={{
-            width: `${groupChartWidthPx}px`,
-            minWidth: "100%",
-            minHeight: 360,
-            border: "1px solid #ddd",
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        />
-      </div>
+      <ScrollableChartShell
+        axis={
+          <FixedYAxis
+            title="kcal"
+            height={groupChartHeight}
+            plotTop={mealPlotTop}
+            plotHeight={mealPlotHeight}
+            min={0}
+            max={vMaxGroup}
+            ticks={groupTicks}
+            fontSize={getAxisFontSize(mealRangeDays)}
+          />
+        }
+        scrollRef={groupScrollWrapRef}
+        chartRef={groupChartRef}
+        chartWidthPx={groupChartWidthPx}
+        chartHeightPx={groupChartHeight}
+      />
 
       <h3 style={{ marginTop: 16 }}>日別 実食カロリー＆7日平均</h3>
-      <div
-        ref={dailyScrollWrapRef}
-        style={{
-          overflowX: "auto",
-          overflowY: "hidden",
-          paddingBottom: 8,
-          WebkitOverflowScrolling: "touch",
-        }}
-      >
-        <div
-          ref={dailyChartRef}
-          style={{
-            width: `${dailyChartWidthPx}px`,
-            minWidth: "100%",
-            minHeight: 360,
-            border: "1px solid #ddd",
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        />
-      </div>
+      <ScrollableChartShell
+        axis={
+          <FixedYAxis
+            title="kcal"
+            height={dailyChartHeight}
+            plotTop={mealPlotTop}
+            plotHeight={mealPlotHeight}
+            min={0}
+            max={vMaxDaily}
+            ticks={dailyTicks}
+            fontSize={getAxisFontSize(mealRangeDays)}
+          />
+        }
+        scrollRef={dailyScrollWrapRef}
+        chartRef={dailyChartRef}
+        chartWidthPx={dailyChartWidthPx}
+        chartHeightPx={dailyChartHeight}
+      />
 
       <h3 style={{ marginTop: 16 }}>体重の推移</h3>
 
@@ -1654,28 +1904,24 @@ export default function SummaryPage() {
         表示系列：{getWeightModeLabel(weightDisplayMode)}
       </div>
 
-      <div
-        ref={weightScrollWrapRef}
-        style={{
-          overflowX: "auto",
-          overflowY: "hidden",
-          paddingBottom: 8,
-          WebkitOverflowScrolling: "touch",
-          marginTop: 8,
-        }}
-      >
-        <div
-          ref={weightChartRef}
-          style={{
-            width: `${weightChartWidthPx}px`,
-            minWidth: "100%",
-            minHeight: 380,
-            border: "1px solid #dddddd",
-            borderRadius: 16,
-            overflow: "hidden",
-          }}
-        />
-      </div>
+      <ScrollableChartShell
+        axis={
+          <FixedYAxis
+            title="kg"
+            height={weightChartHeight}
+            plotTop={weightPlotTop}
+            plotHeight={weightPlotHeight}
+            min={vMinWeight}
+            max={vMaxWeight}
+            ticks={weightTicks}
+            fontSize={Math.max(7, getAxisFontSize(weightRangeDays) - 2)}
+          />
+        }
+        scrollRef={weightScrollWrapRef}
+        chartRef={weightChartRef}
+        chartWidthPx={weightChartWidthPx}
+        chartHeightPx={weightChartHeight}
+      />
 
       <h3 style={{ marginTop: 16 }}>日別合計（表示範囲のみ / kcalで統一）</h3>
 
