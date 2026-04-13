@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { apiFetch } from "@/lib/api";
@@ -34,12 +35,6 @@ type ElimRow = {
   vomit: boolean;
   kind: string;
   score: number | null;
-};
-
-type ElimDailyCountRow = {
-  day: string;
-  poop: number;
-  pee: number;
 };
 
 type Preset =
@@ -113,6 +108,11 @@ const CHART_PLOT_LEFT_PX = 8;
 const CHART_PLOT_WIDTH_RATIO = 0.92;
 
 let chartsReadyPromise: Promise<void> | null = null;
+
+function cls(...a: Array<string | false | undefined>) {
+  return a.filter(Boolean).join(" ");
+}
+
 
 function loadGoogleChartsScript(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -204,6 +204,29 @@ function toDateKey(dtIso: string) {
     month: "2-digit",
     day: "2-digit",
   }).format(d);
+}
+
+function ymdJst(iso: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+
+  const year = parts.find((p) => p.type === "year")?.value ?? "";
+  const month = parts.find((p) => p.type === "month")?.value ?? "";
+  const day = parts.find((p) => p.type === "day")?.value ?? "";
+  return `${year}-${month}-${day}`;
+}
+
+function fmtTimeJst(iso: string) {
+  return new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(iso));
 }
 
 function parseYmd(ymd: string) {
@@ -567,6 +590,9 @@ function getRecentRangeYmdByPreset(
   };
 }
 
+
+
+
 function getWeightRequestRangeYmdByPreset(
   preset: WeightRangePreset,
   anchorYmd: string
@@ -877,8 +903,8 @@ export default function SummaryPage() {
     useState<WeightSmoothKind>("actual");
   const [weightSmoothPeriod, setWeightSmoothPeriod] =
     useState<WeightSmoothPeriod>(7);
-  const [elimListPreset, setElimListPreset] =
-    useState<RecentPeriodPreset>("10");
+  const [elimSectionDays, setElimSectionDays] = useState<7 | 14 | 30>(7);
+  const [openElimDay, setOpenElimDay] = useState<string | null>(null);
   const [dailyTablePreset, setDailyTablePreset] =
     useState<RecentPeriodPreset>("3");
 
@@ -891,6 +917,7 @@ export default function SummaryPage() {
   const groupChartRef = useRef<HTMLDivElement | null>(null);
   const dailyChartRef = useRef<HTMLDivElement | null>(null);
   const weightChartRef = useRef<HTMLDivElement | null>(null);
+  const elimSectionRef = useRef<HTMLDivElement | null>(null);
 
   const groupScrollWrapRef = useRef<HTMLDivElement | null>(null);
   const dailyScrollWrapRef = useRef<HTMLDivElement | null>(null);
@@ -924,6 +951,17 @@ export default function SummaryPage() {
       ro?.disconnect();
       window.removeEventListener("resize", update);
     };
+  }, []);
+
+  useEffect(() => {
+    function handleOutsideClick(e: MouseEvent) {
+      if (!elimSectionRef.current) return;
+      if (elimSectionRef.current.contains(e.target as Node)) return;
+      setOpenElimDay(null);
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
 
   const load = async () => {
@@ -967,23 +1005,9 @@ export default function SummaryPage() {
   };
 
   useEffect(() => {
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        await load();
-      } catch (e: unknown) {
-        if (!cancelled) {
-          setMsg("ERROR: " + String(e instanceof Error ? e.message : e));
-        }
-      }
-    };
-
-    void run();
-
-    return () => {
-      cancelled = true;
-    };
+    load().catch((e: unknown) =>
+      setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+    );
   }, []);
 
   const latestMealDate = useMemo(() => {
@@ -1192,16 +1216,19 @@ export default function SummaryPage() {
     });
   }, [weights, weightInitialRangeYmd.from, weightInitialRangeYmd.to]);
 
-  const elimListRangeYmd = useMemo(() => {
-    return getRecentRangeYmdByPreset(elimListPreset, latestElimDate);
-  }, [elimListPreset, latestElimDate]);
+  const elimSectionRangeYmd = useMemo(() => {
+    return {
+      from: addDaysYmd(latestElimDate, -(elimSectionDays - 1)),
+      to: latestElimDate,
+    };
+  }, [elimSectionDays, latestElimDate]);
 
-  const visibleElimDailyCounts = useMemo(() => {
-    const map = new Map<string, ElimDailyCountRow>();
+  const elimDailyRows = useMemo(() => {
+    const map = new Map<string, { day: string; poop: number; pee: number }>();
 
     for (const row of elimRows) {
       const day = toDateKey(row.dt);
-      if (!isYmdInRange(day, elimListRangeYmd.from, elimListRangeYmd.to)) {
+      if (!isYmdInRange(day, elimSectionRangeYmd.from, elimSectionRangeYmd.to)) {
         continue;
       }
 
@@ -1224,9 +1251,41 @@ export default function SummaryPage() {
     }
 
     return Array.from(map.values())
-      .filter((row) => row.poop > 0 || row.pee > 0)
-      .sort((a, b) => b.day.localeCompare(a.day));
-  }, [elimRows, elimListRangeYmd.from, elimListRangeYmd.to]);
+      .filter((r) => r.poop > 0 || r.pee > 0)
+      .sort((a, b) => a.day.localeCompare(b.day));
+  }, [elimRows, elimSectionRangeYmd.from, elimSectionRangeYmd.to]);
+
+  const elimDetailMap = useMemo(() => {
+    const nextMap: Record<string, ElimRow[]> = {};
+
+    for (const row of elimRows) {
+      const day = ymdJst(row.dt);
+      if (!isYmdInRange(day, elimSectionRangeYmd.from, elimSectionRangeYmd.to)) {
+        continue;
+      }
+      if (!nextMap[day]) nextMap[day] = [];
+      nextMap[day].push(row);
+    }
+
+    for (const day of Object.keys(nextMap)) {
+      nextMap[day].sort((a, b) => new Date(a.dt).getTime() - new Date(b.dt).getTime());
+    }
+
+    return nextMap;
+  }, [elimRows, elimSectionRangeYmd.from, elimSectionRangeYmd.to]);
+
+  const elimSectionTotals = useMemo(() => {
+    let poop = 0;
+    let pee = 0;
+    for (const r of elimDailyRows) {
+      poop += r.poop ?? 0;
+      pee += r.pee ?? 0;
+    }
+    return { poop, pee };
+  }, [elimDailyRows]);
+
+  const effectiveOpenElimDay =
+    openElimDay && elimDetailMap[openElimDay] ? openElimDay : null;
 
   const weightSeriesForChart = useMemo(() => {
     const dates = buildDateSeriesYmd(
@@ -1823,10 +1882,6 @@ export default function SummaryPage() {
     return `${weightInitialRangeYmd.from} 〜 ${weightInitialRangeYmd.to}`;
   }, [weightInitialRangeYmd.from, weightInitialRangeYmd.to]);
 
-  const elimListRangeText = useMemo(() => {
-    return `${elimListRangeYmd.from} 〜 ${elimListRangeYmd.to}`;
-  }, [elimListRangeYmd.from, elimListRangeYmd.to]);
-
   const dailyTableRangeText = useMemo(() => {
     return `${dailyTableRangeYmd.from} 〜 ${dailyTableRangeYmd.to}`;
   }, [dailyTableRangeYmd.from, dailyTableRangeYmd.to]);
@@ -2180,76 +2235,184 @@ export default function SummaryPage() {
         chartHeightPx={weightChartHeight}
       />
 
-      <h3 style={{ marginTop: 16, marginBottom: 8 }}>排泄日別回数</h3>
+      <div ref={elimSectionRef} className="space-y-5" style={{ marginTop: 16 }}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-semibold tracking-tight">
+              排泄 日別回数（うんち/おしっこ）
+            </h3>
+            <div className="mt-1 text-sm text-zinc-600">
+              合計：うんち {elimSectionTotals.poop} 回 / おしっこ {elimSectionTotals.pee} 回（{elimSectionDays}日）
+            </div>
+            <div className="mt-1 text-xs text-zinc-500">
+              日付を押すと、その日の排泄明細を表示します。
+            </div>
+          </div>
 
-      <div
-        style={{
-          marginTop: 8,
-          marginBottom: 8,
-          display: "flex",
-          gap: 8,
-          flexWrap: "wrap",
-        }}
-      >
-        {(["3", "7", "10", "14", "30", "all"] as RecentPeriodPreset[]).map(
-          (p) => (
+          <div className="flex items-center gap-2">
+            <Link href="/entry/elim" className="navbtn">
+              排泄入力へ
+            </Link>
+            <Link href="/elims/logs" className="navbtn">
+              ログ編集
+            </Link>
             <button
-              key={p}
               type="button"
-              onClick={() => setElimListPreset(p)}
-              style={{
-                padding: "8px 14px",
-                borderRadius: 9999,
-                border: "1px solid #d4d4d8",
-                background: elimListPreset === p ? "#18181b" : "#fff",
-                color: elimListPreset === p ? "#fff" : "#18181b",
-                fontSize: 14,
-                fontWeight: 600,
-              }}
+              onClick={() =>
+                load().catch((e: unknown) =>
+                  setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
+                )
+              }
+              className="btn"
             >
-              {getRecentPeriodLabel(p)}
+              更新
             </button>
-          )
-        )}
-      </div>
+          </div>
+        </div>
 
-      <div style={{ marginTop: 4, marginBottom: 8, color: "#666", fontSize: 14 }}>
-        排泄日別回数の表示範囲：{elimListRangeText}
-      </div>
-
-      <table className="summary-weight-table">
-        <thead>
-          <tr>
-            <th style={{ textAlign: "center" }}>日付</th>
-            <th style={{ textAlign: "center" }}>うんち</th>
-            <th style={{ textAlign: "center" }}>おしっこ</th>
-          </tr>
-        </thead>
-
-        <tbody>
-          {visibleElimDailyCounts.map((row) => (
-            <tr key={row.day}>
-              <td data-label="日付" style={{ textAlign: "center", fontWeight: 700 }}>
-                {row.day}
-              </td>
-              <td data-label="うんち" style={{ textAlign: "center" }}>
-                {row.poop}回
-              </td>
-              <td data-label="おしっこ" style={{ textAlign: "center" }}>
-                {row.pee}回
-              </td>
-            </tr>
+        <div className="flex flex-wrap gap-2">
+          {[7, 14, 30].map((d) => (
+            <button
+              key={d}
+              type="button"
+              onClick={() => setElimSectionDays(d as 7 | 14 | 30)}
+              className={cls(
+                "rounded-2xl border px-4 py-2 text-sm font-semibold shadow-sm transition",
+                elimSectionDays === d ? "bg-zinc-900 text-white" : "bg-white hover:bg-zinc-50"
+              )}
+            >
+              {d}日
+            </button>
           ))}
+        </div>
 
-          {visibleElimDailyCounts.length === 0 && (
-            <tr>
-              <td colSpan={3} style={{ textAlign: "center" }}>
-                データがありません
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+        <div className="rounded-2xl border bg-white shadow-sm">
+          <div className="grid grid-cols-3 border-b bg-zinc-50 px-4 py-3 text-xs font-semibold text-zinc-600">
+            <div>日付</div>
+            <div className="text-center">うんち</div>
+            <div className="text-center">おしっこ</div>
+          </div>
+
+          <div className="divide-y overflow-visible">
+            {elimDailyRows.map((r) => {
+              const details = elimDetailMap[r.day] ?? [];
+              const isOpen = effectiveOpenElimDay === r.day;
+
+              return (
+                <div key={r.day} className="grid grid-cols-3 items-center px-4 py-3">
+                  <div className="relative pr-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenElimDay((prev) => (prev === r.day ? null : r.day))
+                      }
+                      className={cls(
+                        "rounded-lg px-2 py-1 text-left text-sm font-semibold transition hover:bg-zinc-100",
+                        isOpen && "bg-zinc-100"
+                      )}
+                    >
+                      {r.day}
+                    </button>
+
+                    {isOpen && (
+                      <div className="absolute left-0 top-full z-30 mt-2 w-[330px] max-w-[calc(100vw-3rem)] rounded-2xl border bg-white p-3 shadow-xl">
+                        <div className="absolute -top-2 left-6 h-3 w-3 rotate-45 border-l border-t bg-white" />
+
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <div>
+                            <div className="text-sm font-semibold">{r.day} の排泄明細</div>
+                            <div className="text-xs text-zinc-500">{details.length} 件</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setOpenElimDay(null)}
+                            className="rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100"
+                          >
+                            閉じる
+                          </button>
+                        </div>
+
+                        {details.length > 0 ? (
+                          <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                            {details.map((item) => (
+                              <div
+                                key={item.id}
+                                className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-sm font-semibold">
+                                    {fmtTimeJst(item.dt)}
+                                  </div>
+                                  <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-zinc-700 ring-1 ring-zinc-200">
+                                    {(() => {
+                                      const kind = String(item.kind ?? "").trim();
+                                      if (kind === "both") return "両方";
+                                      if (kind === "stool") return "うんち";
+                                      if (kind === "urine") return "おしっこ";
+                                      if (item.stool && item.urine) return "両方";
+                                      if (item.stool) return "うんち";
+                                      if (item.urine) return "おしっこ";
+                                      return "未設定";
+                                    })()}
+                                  </span>
+                                </div>
+
+                                <div className="mt-1 flex flex-wrap gap-2 text-xs text-zinc-600">
+                                  {item.amount !== null && <span>量: {item.amount}</span>}
+                                  {item.urine_ml !== null && <span>尿量: {item.urine_ml}ml</span>}
+                                  {item.vomit && <span>嘔吐あり</span>}
+                                </div>
+
+                                {item.note && (
+                                  <div className="mt-1 text-xs leading-5 text-zinc-700">
+                                    {item.note}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-zinc-500">明細はありません</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex justify-center">
+                    <span
+                      className={cls(
+                        "min-w-10 rounded-full px-3 py-1 text-center text-sm font-semibold",
+                        r.poop > 0
+                          ? "bg-amber-100 text-amber-900"
+                          : "bg-zinc-100 text-zinc-500"
+                      )}
+                    >
+                      {r.poop}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-center">
+                    <span
+                      className={cls(
+                        "min-w-10 rounded-full px-3 py-1 text-center text-sm font-semibold",
+                        r.pee > 0
+                          ? "bg-sky-100 text-sky-900"
+                          : "bg-zinc-100 text-zinc-500"
+                      )}
+                    >
+                      {r.pee}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {elimDailyRows.length === 0 && (
+              <div className="px-4 py-6 text-sm text-zinc-600">データがありません</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       <h3 style={{ marginTop: 16, marginBottom: 8 }}>日別合計（kcalで統一）</h3>
 
