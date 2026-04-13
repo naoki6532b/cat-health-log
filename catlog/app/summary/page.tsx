@@ -503,11 +503,11 @@ function presetDays(p: Preset) {
 }
 
 function getMealPresetLabel(p: Preset) {
-  if (p === "3") return "直近3日";
-  if (p === "7") return "直近7日";
-  if (p === "30") return "直近30日";
-  if (p === "90") return "直近90日";
-  if (p === "180") return "直近180日";
+  if (p === "3") return "3日";
+  if (p === "7") return "7日";
+  if (p === "30") return "30日";
+  if (p === "90") return "90日";
+  if (p === "180") return "180日";
   if (p === "365") return "1年";
   if (p === "548") return "1.5年";
   return "期間指定";
@@ -572,7 +572,7 @@ function getWeightRangePresetLabel(p: WeightRangePreset) {
 
 function getRecentPeriodLabel(p: RecentPeriodPreset) {
   if (p === "all") return "すべて";
-  return `直近${p}日`;
+  return `${p}日`;
 }
 
 function getRecentRangeYmdByPreset(
@@ -897,7 +897,7 @@ export default function SummaryPage() {
   const [offsetDays, setOffsetDays] = useState<number>(0);
 
   const [weightRangePreset, setWeightRangePreset] =
-    useState<WeightRangePreset>("1m");
+    useState<WeightRangePreset>("2m");
 
   const [weightSmoothKind, setWeightSmoothKind] =
     useState<WeightSmoothKind>("actual");
@@ -906,7 +906,7 @@ export default function SummaryPage() {
   const [elimSectionDays, setElimSectionDays] = useState<7 | 14 | 30>(7);
   const [openElimDay, setOpenElimDay] = useState<string | null>(null);
   const [dailyTablePreset, setDailyTablePreset] =
-    useState<RecentPeriodPreset>("3");
+    useState<RecentPeriodPreset>("7");
 
   const [fromDate, setFromDate] = useState<string>(() => {
     const today = jstYmd(new Date());
@@ -1931,28 +1931,28 @@ export default function SummaryPage() {
               className={`summary-range-btn ${preset === "3" ? "active" : ""}`}
               onClick={() => onPreset("3")}
             >
-              直近3日
+              3日
             </button>
 
             <button
               className={`summary-range-btn ${preset === "7" ? "active" : ""}`}
               onClick={() => onPreset("7")}
             >
-              直近7日
+              7日
             </button>
 
             <button
               className={`summary-range-btn ${preset === "30" ? "active" : ""}`}
               onClick={() => onPreset("30")}
             >
-              直近30日
+              30日
             </button>
 
             <button
               className={`summary-range-btn ${preset === "90" ? "active" : ""}`}
               onClick={() => onPreset("90")}
             >
-              直近90日
+              90日
             </button>
 
             <button
@@ -1961,7 +1961,7 @@ export default function SummaryPage() {
               }`}
               onClick={() => onPreset("180")}
             >
-              直近180日
+              180日
             </button>
 
             <button
