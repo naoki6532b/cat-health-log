@@ -23,6 +23,25 @@ type WeightRow = {
   memo: string | null;
 };
 
+type ElimRow = {
+  id: number;
+  dt: string;
+  stool: string | null;
+  urine: string | null;
+  urine_ml: number | null;
+  amount: number | null;
+  note: string | null;
+  vomit: boolean;
+  kind: string;
+  score: number | null;
+};
+
+type ElimDailyCountRow = {
+  day: string;
+  poop: number;
+  pee: number;
+};
+
 type Preset =
   | "3"
   | "7"
@@ -47,6 +66,8 @@ type WeightRangePreset =
   | "48m"
   | "60m"
   | "all";
+
+type RecentPeriodPreset = "3" | "7" | "10" | "14" | "30" | "all";
 
 type RangeYmd = {
   from: string;
@@ -526,6 +547,26 @@ function getWeightRangePresetLabel(p: WeightRangePreset) {
   return "すべて";
 }
 
+function getRecentPeriodLabel(p: RecentPeriodPreset) {
+  if (p === "all") return "すべて";
+  return `直近${p}日`;
+}
+
+function getRecentRangeYmdByPreset(
+  preset: RecentPeriodPreset,
+  anchorYmd: string
+): RangeYmd {
+  if (preset === "all") {
+    return { from: "2000-01-01", to: anchorYmd };
+  }
+
+  const days = Number(preset);
+  return {
+    from: addDaysYmd(anchorYmd, -(days - 1)),
+    to: anchorYmd,
+  };
+}
+
 function getWeightRequestRangeYmdByPreset(
   preset: WeightRangePreset,
   anchorYmd: string
@@ -823,6 +864,7 @@ function ScrollableChartShell({
 export default function SummaryPage() {
   const [rows, setRows] = useState<MealRow[]>([]);
   const [weights, setWeights] = useState<WeightRow[]>([]);
+  const [elimRows, setElimRows] = useState<ElimRow[]>([]);
   const [msg, setMsg] = useState("");
 
   const [preset, setPreset] = useState<Preset>("7");
@@ -832,9 +874,13 @@ export default function SummaryPage() {
     useState<WeightRangePreset>("1m");
 
   const [weightSmoothKind, setWeightSmoothKind] =
-    useState<WeightSmoothKind>("ema");
+    useState<WeightSmoothKind>("actual");
   const [weightSmoothPeriod, setWeightSmoothPeriod] =
     useState<WeightSmoothPeriod>(7);
+  const [elimListPreset, setElimListPreset] =
+    useState<RecentPeriodPreset>("10");
+  const [dailyTablePreset, setDailyTablePreset] =
+    useState<RecentPeriodPreset>("3");
 
   const [fromDate, setFromDate] = useState<string>(() => {
     const today = jstYmd(new Date());
@@ -888,10 +934,12 @@ export default function SummaryPage() {
 
     const mealsUrl = `/api/summary/meals?from=${allFrom}&to=${today}`;
     const weightsUrl = `/api/weights?from=${allFrom}&to=${today}`;
+    const elimsUrl = `/api/elims?from=${allFrom}&to=${today}`;
 
-    const [mRes, wRes] = await Promise.all([
+    const [mRes, wRes, eRes] = await Promise.all([
       apiFetch(mealsUrl),
       apiFetch(weightsUrl),
+      apiFetch(elimsUrl),
     ]);
 
     if (!mRes.ok) {
@@ -904,17 +952,38 @@ export default function SummaryPage() {
       throw new Error(txt || `Weights HTTP ${wRes.status}`);
     }
 
+    if (!eRes.ok) {
+      const txt = await eRes.text().catch(() => "");
+      throw new Error(txt || `Elims HTTP ${eRes.status}`);
+    }
+
     const meals = (await mRes.json()) as MealRow[];
     const wJson = (await wRes.json()) as { data: WeightRow[] };
+    const eJson = (await eRes.json()) as { data: ElimRow[] };
 
     setRows(meals ?? []);
     setWeights(wJson?.data ?? []);
+    setElimRows(eJson?.data ?? []);
   };
 
   useEffect(() => {
-    load().catch((e: unknown) =>
-      setMsg("ERROR: " + String(e instanceof Error ? e.message : e))
-    );
+    let cancelled = false;
+
+    const run = async () => {
+      try {
+        await load();
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setMsg("ERROR: " + String(e instanceof Error ? e.message : e));
+        }
+      }
+    };
+
+    void run();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const latestMealDate = useMemo(() => {
@@ -1041,11 +1110,15 @@ export default function SummaryPage() {
     return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
   }, [rows]);
 
-  const dailyVisible = useMemo(() => {
+  const dailyTableRangeYmd = useMemo(() => {
+    return getRecentRangeYmdByPreset(dailyTablePreset, latestMealDate);
+  }, [dailyTablePreset, latestMealDate]);
+
+  const dailyTableVisible = useMemo(() => {
     return dailyAll.filter((d) =>
-      isYmdInRange(d.date, activeRangeYmd.from, activeRangeYmd.to)
+      isYmdInRange(d.date, dailyTableRangeYmd.from, dailyTableRangeYmd.to)
     );
-  }, [dailyAll, activeRangeYmd.from, activeRangeYmd.to]);
+  }, [dailyAll, dailyTableRangeYmd.from, dailyTableRangeYmd.to]);
 
   const fullMealRangeYmd = useMemo(() => {
     if (dailyAll.length === 0) {
@@ -1082,6 +1155,17 @@ export default function SummaryPage() {
     return keys[keys.length - 1] ?? jstYmd(new Date());
   }, [dailyWeightMap]);
 
+  const latestElimDate = useMemo(() => {
+    if (elimRows.length === 0) return jstYmd(new Date());
+
+    let latest = "2000-01-01";
+    for (const row of elimRows) {
+      const d = toDateKey(row.dt);
+      if (d > latest) latest = d;
+    }
+    return latest;
+  }, [elimRows]);
+
   const fullWeightRangeYmd = useMemo(() => {
     return {
       from: Array.from(dailyWeightMap.keys()).sort()[0] ?? latestWeightDate,
@@ -1100,9 +1184,49 @@ export default function SummaryPage() {
   const visibleWeightRows = useMemo(() => {
     return weights.filter((w) => {
       const d = toDateKey(w.dt);
-      return isYmdInRange(d, weightInitialRangeYmd.from, weightInitialRangeYmd.to);
+      return isYmdInRange(
+        d,
+        weightInitialRangeYmd.from,
+        weightInitialRangeYmd.to
+      );
     });
   }, [weights, weightInitialRangeYmd.from, weightInitialRangeYmd.to]);
+
+  const elimListRangeYmd = useMemo(() => {
+    return getRecentRangeYmdByPreset(elimListPreset, latestElimDate);
+  }, [elimListPreset, latestElimDate]);
+
+  const visibleElimDailyCounts = useMemo(() => {
+    const map = new Map<string, ElimDailyCountRow>();
+
+    for (const row of elimRows) {
+      const day = toDateKey(row.dt);
+      if (!isYmdInRange(day, elimListRangeYmd.from, elimListRangeYmd.to)) {
+        continue;
+      }
+
+      const cur = map.get(day) ?? { day, poop: 0, pee: 0 };
+      const kind = String(row.kind ?? "").trim();
+
+      if (kind === "both") {
+        cur.poop += 1;
+        cur.pee += 1;
+      } else if (kind === "stool") {
+        cur.poop += 1;
+      } else if (kind === "urine") {
+        cur.pee += 1;
+      } else {
+        if (row.stool) cur.poop += 1;
+        if (row.urine) cur.pee += 1;
+      }
+
+      map.set(day, cur);
+    }
+
+    return Array.from(map.values())
+      .filter((row) => row.poop > 0 || row.pee > 0)
+      .sort((a, b) => b.day.localeCompare(a.day));
+  }, [elimRows, elimListRangeYmd.from, elimListRangeYmd.to]);
 
   const weightSeriesForChart = useMemo(() => {
     const dates = buildDateSeriesYmd(
@@ -1354,7 +1478,7 @@ export default function SummaryPage() {
         return;
       }
 
-      if (rows.length === 0 && weights.length === 0) return;
+      if (rows.length === 0 && weights.length === 0 && elimRows.length === 0) return;
 
       await ensureChartsReady();
       if (cancelled) return;
@@ -1624,6 +1748,7 @@ export default function SummaryPage() {
   }, [
     rows,
     weights,
+    elimRows,
     grouped15All,
     activeWeightSeries,
     weightSeriesLabel,
@@ -1697,6 +1822,14 @@ export default function SummaryPage() {
   const weightRangeText = useMemo(() => {
     return `${weightInitialRangeYmd.from} 〜 ${weightInitialRangeYmd.to}`;
   }, [weightInitialRangeYmd.from, weightInitialRangeYmd.to]);
+
+  const elimListRangeText = useMemo(() => {
+    return `${elimListRangeYmd.from} 〜 ${elimListRangeYmd.to}`;
+  }, [elimListRangeYmd.from, elimListRangeYmd.to]);
+
+  const dailyTableRangeText = useMemo(() => {
+    return `${dailyTableRangeYmd.from} 〜 ${dailyTableRangeYmd.to}`;
+  }, [dailyTableRangeYmd.from, dailyTableRangeYmd.to]);
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
@@ -1826,7 +1959,7 @@ export default function SummaryPage() {
       </div>
 
       <div style={{ marginTop: 10, color: "#555" }}>
-        全期間保持：給餌 {rows.length} 件 / 体重 {weights.length} 件
+        全期間保持：給餌 {rows.length} 件 / 体重 {weights.length} 件 / 排泄 {elimRows.length} 件
       </div>
       <div style={{ marginTop: 4, color: "#555" }}>
         現在の表示範囲データ：給餌 {visibleMealRows.length} 件 / 体重 {visibleWeightRows.length} 件
@@ -2047,7 +2180,111 @@ export default function SummaryPage() {
         chartHeightPx={weightChartHeight}
       />
 
-      <h3 style={{ marginTop: 16 }}>日別合計（表示範囲のみ / kcalで統一）</h3>
+      <h3 style={{ marginTop: 16, marginBottom: 8 }}>排泄日別回数</h3>
+
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 8,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        {(["3", "7", "10", "14", "30", "all"] as RecentPeriodPreset[]).map(
+          (p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setElimListPreset(p)}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 9999,
+                border: "1px solid #d4d4d8",
+                background: elimListPreset === p ? "#18181b" : "#fff",
+                color: elimListPreset === p ? "#fff" : "#18181b",
+                fontSize: 14,
+                fontWeight: 600,
+              }}
+            >
+              {getRecentPeriodLabel(p)}
+            </button>
+          )
+        )}
+      </div>
+
+      <div style={{ marginTop: 4, marginBottom: 8, color: "#666", fontSize: 14 }}>
+        排泄日別回数の表示範囲：{elimListRangeText}
+      </div>
+
+      <table className="summary-weight-table">
+        <thead>
+          <tr>
+            <th style={{ textAlign: "center" }}>日付</th>
+            <th style={{ textAlign: "center" }}>うんち</th>
+            <th style={{ textAlign: "center" }}>おしっこ</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {visibleElimDailyCounts.map((row) => (
+            <tr key={row.day}>
+              <td data-label="日付" style={{ textAlign: "center", fontWeight: 700 }}>
+                {row.day}
+              </td>
+              <td data-label="うんち" style={{ textAlign: "center" }}>
+                {row.poop}回
+              </td>
+              <td data-label="おしっこ" style={{ textAlign: "center" }}>
+                {row.pee}回
+              </td>
+            </tr>
+          ))}
+
+          {visibleElimDailyCounts.length === 0 && (
+            <tr>
+              <td colSpan={3} style={{ textAlign: "center" }}>
+                データがありません
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <h3 style={{ marginTop: 16, marginBottom: 8 }}>日別合計（kcalで統一）</h3>
+
+      <div
+        style={{
+          marginTop: 8,
+          marginBottom: 8,
+          display: "flex",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        {(["3", "7", "14", "30", "all"] as RecentPeriodPreset[]).map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => setDailyTablePreset(p)}
+            style={{
+              padding: "8px 14px",
+              borderRadius: 9999,
+              border: "1px solid #d4d4d8",
+              background: dailyTablePreset === p ? "#18181b" : "#fff",
+              color: dailyTablePreset === p ? "#fff" : "#18181b",
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            {getRecentPeriodLabel(p)}
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 4, marginBottom: 8, color: "#666", fontSize: 14 }}>
+        日別合計の表示範囲：{dailyTableRangeText}
+      </div>
 
       <table className="daily-kcal-table">
         <thead>
@@ -2060,7 +2297,7 @@ export default function SummaryPage() {
         </thead>
 
         <tbody>
-          {dailyVisible.map((d) => (
+          {dailyTableVisible.map((d) => (
             <tr key={d.date}>
               <td data-label="日付" style={{ textAlign: "center" }}>
                 {d.date}
@@ -2077,7 +2314,7 @@ export default function SummaryPage() {
             </tr>
           ))}
 
-          {dailyVisible.length === 0 && (
+          {dailyTableVisible.length === 0 && (
             <tr>
               <td colSpan={4} style={{ textAlign: "center" }}>
                 データがありません

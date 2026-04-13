@@ -146,6 +146,73 @@ body {
   border-bottom: none;
 }
 
+
+.summary-weight-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.9rem;
+  background: linear-gradient(180deg, #ffffff, #f8fafc);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.summary-weight-table thead th {
+  background: linear-gradient(135deg, var(--head), #eaf6fc);
+  color: #234a66;
+  font-weight: 600;
+  padding: 10px 8px;
+  border-bottom: 1px solid #cfd8dc;
+  text-align: center;
+  letter-spacing: 0.03em;
+}
+
+.summary-weight-table thead th:first-child {
+  border-top-left-radius: 14px;
+}
+.summary-weight-table thead th:last-child {
+  border-top-right-radius: 14px;
+}
+
+.summary-weight-table tbody tr {
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.summary-weight-table tbody tr:nth-child(even) {
+  background-color: #f6f9fc;
+}
+
+.summary-weight-table tbody tr:hover {
+  background-color: #e3f2fd;
+  transform: scale(1.003);
+}
+
+.summary-weight-table td {
+  padding: 9px 8px;
+  border-bottom: 1px solid #e0e6ed;
+  text-align: center;
+  color: #263238;
+}
+
+.summary-weight-table td:first-child {
+  font-weight: 600;
+  color: #37474f;
+}
+
+.summary-weight-table td:nth-child(2) {
+  font-weight: 700;
+  color: #1565c0;
+}
+
+.summary-weight-table td:nth-child(3) {
+  color: #455a64;
+}
+
+.summary-weight-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
 /* スマホ対応（カードUI化） */
 @media (max-width: 640px) {
   .daily-kcal-table {
@@ -172,6 +239,37 @@ body {
   }
 
   .daily-kcal-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #607d8b;
+  }
+}
+
+@media (max-width: 640px) {
+  .summary-weight-table {
+    font-size: 0.85rem;
+  }
+
+  .summary-weight-table thead {
+    display: none;
+  }
+
+  .summary-weight-table tr {
+    display: block;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .summary-weight-table td {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e0e6ed;
+  }
+
+  .summary-weight-table td::before {
     content: attr(data-label);
     font-weight: 600;
     color: #607d8b;

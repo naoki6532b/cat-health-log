@@ -36,20 +36,30 @@ export async function GET(req: Request) {
 
   try {
     const url = new URL(req.url);
+    const from = String(url.searchParams.get("from") ?? "").trim();
+    const to = String(url.searchParams.get("to") ?? "").trim();
     const days = Math.max(
       1,
       Math.min(90, Number(url.searchParams.get("days") ?? "14") || 14)
     );
 
-    // daily と同じ基準にそろえる
-    const start = startOfTodayJST_asUTC();
-    start.setUTCDate(start.getUTCDate() - (days - 1));
-
-    const { data, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("cat_elims")
       .select("id, dt, stool, urine, urine_ml, amount, note, vomit, kind, score")
-      .gte("dt", start.toISOString())
       .order("dt", { ascending: false });
+
+    if (from && to) {
+      const fromIso = `${from}T00:00:00+09:00`;
+      const toIso = `${to}T23:59:59.999+09:00`;
+      query = query.gte("dt", new Date(fromIso).toISOString()).lte("dt", new Date(toIso).toISOString());
+    } else {
+      // daily と同じ基準にそろえる
+      const start = startOfTodayJST_asUTC();
+      start.setUTCDate(start.getUTCDate() - (days - 1));
+      query = query.gte("dt", start.toISOString());
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
