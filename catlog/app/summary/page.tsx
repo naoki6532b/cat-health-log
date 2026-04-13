@@ -102,9 +102,9 @@ declare global {
   }
 }
 
-const FIXED_Y_AXIS_WIDTH = 124;
+const FIXED_Y_AXIS_WIDTH = 80;
 const TOOLTIP_FONT_SIZE = 10;
-const CHART_PLOT_LEFT_PX = 8;
+const CHART_PLOT_LEFT_PX = 0;
 const CHART_PLOT_WIDTH_RATIO = 0.92;
 
 let chartsReadyPromise: Promise<void> | null = null;
