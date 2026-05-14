@@ -70,19 +70,33 @@ export async function GET(req: Request) {
     ({ fromIso, toIso } = jstRangeIso(fromYmd, toYmd));
   }
 
-  const { data, error } = await supabaseAdmin
-    .from("cat_meals")
-    .select("dt, grams, kcal, leftover_g, kcal_per_g_snapshot, cat_foods(food_name)")
-    .gte("dt", fromIso)
-    .lte("dt", toIso)
-    .order("dt", { ascending: true })
-    .returns<Row[]>();
+  // Supabase/PostgREST enforces a per-request row cap (default 1000).
+  // Order asc + no limit silently dropped the newest rows once the user
+  // crossed that threshold, which made recent days disappear from the
+  // aggregation chart. Paginate via .range() so the chart sees every row.
+  const PAGE_SIZE = 1000;
+  const collected: Row[] = [];
+  for (let offset = 0; ; offset += PAGE_SIZE) {
+    const { data, error } = await supabaseAdmin
+      .from("cat_meals")
+      .select("dt, grams, kcal, leftover_g, kcal_per_g_snapshot, cat_foods(food_name)")
+      .gte("dt", fromIso)
+      .lte("dt", toIso)
+      .order("dt", { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1)
+      .returns<Row[]>();
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const batch = data ?? [];
+    collected.push(...batch);
+
+    if (batch.length < PAGE_SIZE) break;
   }
 
-  const rows = (data ?? []).map((r) => {
+  const rows = collected.map((r) => {
     const grams = Number(r.grams ?? 0);
     const kcal = Number(r.kcal ?? 0);
     const leftover_g = Number(r.leftover_g ?? 0);
