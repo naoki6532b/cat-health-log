@@ -86,3 +86,126 @@ export async function GET(req: Request) {
 
   return NextResponse.json(out);
 }
+
+type PatchItem = {
+  meal_id?: number | string | null;
+  grams?: number | string | null;
+  kcal?: number | string | null;
+};
+
+type PatchBody = {
+  anchor_id?: number | string | null;
+  dt?: string | null;
+  items?: PatchItem[];
+};
+
+/**
+ * セット（同一 meal_group_id）の給餌量をまとめて修正する。
+ * - dt を渡すとグループ全行の日時を揃える
+ * - items の各行は grams（必須）、kcal（任意・未指定なら snapshot から再計算）
+ * - anchor と同じグループに属する行のみ更新する
+ */
+export async function PATCH(req: Request) {
+  const pinRes = checkPin(req);
+  if (pinRes) return pinRes;
+
+  const body = (await req.json().catch(() => null)) as PatchBody | null;
+  if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
+
+  const anchorId = parseId(body.anchor_id != null ? String(body.anchor_id) : null);
+  if (!anchorId) {
+    return NextResponse.json({ error: "anchor_id is required" }, { status: 400 });
+  }
+
+  const items = Array.isArray(body.items) ? body.items : [];
+
+  const supabase = getSupabaseAdmin();
+
+  const { data: anchor, error: aErr } = await supabase
+    .from("cat_meals")
+    .select("meal_group_id")
+    .eq("id", anchorId)
+    .single();
+
+  if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
+
+  const groupId = anchor?.meal_group_id;
+  if (!groupId) {
+    return NextResponse.json({ error: "meal_group_id is missing" }, { status: 500 });
+  }
+
+  const { data: groupRows, error: gErr } = await supabase
+    .from("cat_meals")
+    .select("id,kcal_per_g_snapshot")
+    .eq("meal_group_id", groupId);
+
+  if (gErr) return NextResponse.json({ error: gErr.message }, { status: 500 });
+
+  const snapMap = new Map<number, number>();
+  for (const r of groupRows ?? []) {
+    snapMap.set(Number(r.id), Number(r.kcal_per_g_snapshot ?? NaN));
+  }
+
+  let dtIso: string | null = null;
+  if (body.dt != null && body.dt !== "") {
+    const parsed = new Date(body.dt);
+    if (Number.isNaN(parsed.getTime())) {
+      return NextResponse.json({ error: "invalid dt" }, { status: 400 });
+    }
+    dtIso = parsed.toISOString();
+  }
+
+  let updated = 0;
+
+  for (const it of items) {
+    const id = parseId(it?.meal_id != null ? String(it.meal_id) : null);
+    if (!id || !snapMap.has(id)) continue; // グループ外の行は無視
+
+    const patch: Record<string, unknown> = {};
+
+    const grams =
+      it.grams == null || it.grams === "" ? null : Number(it.grams);
+    if (grams != null) {
+      if (!Number.isFinite(grams) || grams <= 0) {
+        return NextResponse.json(
+          { error: `invalid grams for meal_id=${id}` },
+          { status: 400 }
+        );
+      }
+      patch.grams = grams;
+    }
+
+    const kcalIn = it.kcal == null || it.kcal === "" ? null : Number(it.kcal);
+    if (kcalIn != null) {
+      if (!Number.isFinite(kcalIn)) {
+        return NextResponse.json(
+          { error: `invalid kcal for meal_id=${id}` },
+          { status: 400 }
+        );
+      }
+      patch.kcal = kcalIn;
+    } else if (grams != null) {
+      const snap = snapMap.get(id);
+      if (snap != null && Number.isFinite(snap)) {
+        patch.kcal = Number((grams * snap).toFixed(3));
+      }
+    }
+
+    if (Object.keys(patch).length === 0) continue;
+
+    const { error } = await supabase.from("cat_meals").update(patch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    updated++;
+  }
+
+  // 日時はグループ全行で揃える
+  if (dtIso) {
+    const { error } = await supabase
+      .from("cat_meals")
+      .update({ dt: dtIso })
+      .eq("meal_group_id", groupId);
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true, updated });
+}
