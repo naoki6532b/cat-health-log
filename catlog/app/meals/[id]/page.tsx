@@ -20,6 +20,25 @@ type Meal = {
   note: string | null;
   kcal_per_g_snapshot?: number | null;
   leftover_g?: number | null;
+  meal_group_id?: string | null;
+};
+
+type GroupRow = {
+  id: number;
+  food_id: number;
+  food_name: string | null;
+  grams: number | null;
+  kcal: number | null;
+  kcal_per_g_snapshot: number | null;
+};
+
+type GroupEditRow = {
+  id: number;
+  food_id: number;
+  food_name: string | null;
+  kcal_per_g_snapshot: number;
+  grams: string;
+  kcal: string;
 };
 
 function toDatetimeLocalFromISO(iso: string) {
@@ -72,29 +91,47 @@ export default function MealEditPage() {
 
   const [lastEdited, setLastEdited] = useState<"g" | "k" | null>(null);
 
+  // セット（同一 meal_group_id）の修正用。2件以上ならセットモード。
+  const [groupRows, setGroupRows] = useState<GroupEditRow[]>([]);
+  const isGroup = groupRows.length > 1;
+
   const selected = useMemo(() => {
     return foods.find((f) => String(f.id) === String(foodId)) ?? null;
   }, [foods, foodId]);
 
-  // g -> kcal 自動
+  // g -> kcal 自動（単品モード）
   useEffect(() => {
+    if (isGroup) return;
     if (!selected) return;
     if (lastEdited !== "g") return;
     const g = Number(grams);
     if (!g || Number.isNaN(g)) return;
     const k = g * Number(selected.kcal_per_g);
     setKcal(k.toFixed(1));
-  }, [grams, selected, lastEdited]);
+  }, [grams, selected, lastEdited, isGroup]);
 
-  // kcal -> g 自動
+  // kcal -> g 自動（単品モード）
   useEffect(() => {
+    if (isGroup) return;
     if (!selected) return;
     if (lastEdited !== "k") return;
     const k = Number(kcal);
     if (!k || Number.isNaN(k) || Number(selected.kcal_per_g) === 0) return;
     const g = k / Number(selected.kcal_per_g);
     setGrams(g.toFixed(1));
-  }, [kcal, selected, lastEdited]);
+  }, [kcal, selected, lastEdited, isGroup]);
+
+  const groupTotal = useMemo(() => {
+    let g = 0;
+    let k = 0;
+    for (const r of groupRows) {
+      const gv = Number(r.grams);
+      if (Number.isFinite(gv)) g += gv;
+      const kv = Number(r.kcal);
+      if (Number.isFinite(kv)) k += kv;
+    }
+    return { grams: g, kcal: k };
+  }, [groupRows]);
 
   const loadFoods = async () => {
     const res = await apiFetch("/api/foods");
@@ -102,6 +139,30 @@ export default function MealEditPage() {
     const data = (await res.json()) as Food[];
     setFoods(data ?? []);
     return data ?? [];
+  };
+
+  const loadGroup = async (anchorId: number) => {
+    const res = await apiFetch(`/api/meals/group?anchor_id=${anchorId}`);
+    if (!res.ok) {
+      // グループ取得に失敗したら単品モードにフォールバック
+      setGroupRows([]);
+      return;
+    }
+    const rows = (await res.json()) as GroupRow[];
+    if (!Array.isArray(rows) || rows.length <= 1) {
+      setGroupRows([]);
+      return;
+    }
+    setGroupRows(
+      rows.map((r) => ({
+        id: r.id,
+        food_id: r.food_id,
+        food_name: r.food_name,
+        kcal_per_g_snapshot: Number(r.kcal_per_g_snapshot ?? 0),
+        grams: r.grams == null ? "" : String(r.grams),
+        kcal: r.kcal == null ? "" : String(r.kcal),
+      }))
+    );
   };
 
   const loadMeal = async () => {
@@ -118,6 +179,12 @@ export default function MealEditPage() {
     setNote(data.note ?? "");
     setLastEdited(null);
 
+    if (data.meal_group_id) {
+      await loadGroup(data.id);
+    } else {
+      setGroupRows([]);
+    }
+
     return data;
   };
 
@@ -133,6 +200,79 @@ export default function MealEditPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // セットモード：grams 変更 → snapshot から kcal 再計算
+  const onChangeRowGrams = (rowId: number, v: string) => {
+    setGroupRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        if (v === "") return { ...r, grams: "", kcal: "" };
+        const g = Number(v);
+        const snap = Number(r.kcal_per_g_snapshot);
+        const kcalNext =
+          Number.isFinite(g) && Number.isFinite(snap) && snap > 0
+            ? (g * snap).toFixed(1)
+            : r.kcal;
+        return { ...r, grams: v, kcal: kcalNext };
+      })
+    );
+  };
+
+  // セットモード：kcal 変更 → snapshot から grams 再計算
+  const onChangeRowKcal = (rowId: number, v: string) => {
+    setGroupRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== rowId) return r;
+        if (v === "") return { ...r, kcal: "", grams: "" };
+        const k = Number(v);
+        const snap = Number(r.kcal_per_g_snapshot);
+        const gramsNext =
+          Number.isFinite(k) && Number.isFinite(snap) && snap > 0
+            ? (k / snap).toFixed(1)
+            : r.grams;
+        return { ...r, kcal: v, grams: gramsNext };
+      })
+    );
+  };
+
+  const saveGroup = async () => {
+    setMsg("");
+    try {
+      if (!id) throw new Error("id が不明です");
+
+      const items = groupRows.map((r) => {
+        const g = Number(r.grams);
+        if (!g || Number.isNaN(g) || g <= 0) {
+          throw new Error(
+            `「${r.food_name ?? `food_id:${r.food_id}`}」のグラム数を入力してください`
+          );
+        }
+        const k = Number(r.kcal);
+        return {
+          meal_id: r.id,
+          grams: g,
+          kcal: Number.isFinite(k) && k > 0 ? k : null,
+        };
+      });
+
+      const res = await apiFetch(`/api/meals/group`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          anchor_id: Number(id),
+          dt: new Date(dtLocal).toISOString(),
+          items,
+        }),
+      });
+
+      await ensureOk(res);
+
+      setMsg("セットの給餌量を保存しました");
+      await loadMeal();
+    } catch (e: any) {
+      setMsg("ERROR: " + String(e?.message ?? e));
+    }
+  };
 
   const save = async () => {
     setMsg("");
@@ -185,7 +325,11 @@ export default function MealEditPage() {
       <div className="flex items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">給餌 修正</h1>
-          <p className="text-sm text-zinc-500">保存に失敗した場合は原因を表示します</p>
+          <p className="text-sm text-zinc-500">
+            {isGroup
+              ? "セットで登録された給餌です。フードごとの量をまとめて修正できます"
+              : "保存に失敗した場合は原因を表示します"}
+          </p>
         </div>
       </div>
 
@@ -200,103 +344,198 @@ export default function MealEditPage() {
         </div>
       )}
 
-      <div className="rounded-3xl border bg-white p-4 shadow-sm sm:p-6">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block">
-            <div className="mb-1 text-sm font-medium">日時</div>
-            <input
-              type="datetime-local"
-              value={dtLocal}
-              onChange={(e) => setDtLocal(e.target.value)}
-              className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-            />
-          </label>
+      {isGroup ? (
+        // ===== セット修正モード =====
+        <div className="rounded-3xl border bg-white p-4 shadow-sm sm:p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <div className="mb-1 text-sm font-medium">日時（セット全体）</div>
+              <input
+                type="datetime-local"
+                value={dtLocal}
+                onChange={(e) => setDtLocal(e.target.value)}
+                className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+              />
+              <div className="mt-1 text-xs text-zinc-500">
+                変更するとセット内の全フードの日時が揃います
+              </div>
+            </label>
 
-          <label className="block">
-            <div className="mb-1 text-sm font-medium">フード名</div>
-            <select
-              value={foodId === "" || foodId == null ? "" : String(foodId)}
-              onChange={(e) => {
-                setFoodId(e.target.value || "");
-                setLastEdited(null);
-              }}
-              className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-            >
-              {foods.map((f) => (
-                <option key={String(f.id)} value={String(f.id)}>
-                  {f.food_name}
-                </option>
+            <div className="block">
+              <div className="mb-1 text-sm font-medium">セット合計</div>
+              <div className="rounded-2xl border bg-zinc-50 px-3 py-2 text-sm">
+                {groupTotal.grams.toFixed(1)} g / {groupTotal.kcal.toFixed(1)} kcal
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-sm font-medium">フード別の給餌量</div>
+
+            <div className="space-y-2">
+              {groupRows.map((r) => (
+                <div
+                  key={r.id}
+                  className="rounded-2xl border bg-white px-3 py-3"
+                >
+                  <div className="text-sm font-medium">
+                    {r.food_name ?? `food_id:${r.food_id}`}
+                  </div>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    <label className="block">
+                      <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
+                      <input
+                        value={r.grams}
+                        onChange={(e) => onChangeRowGrams(r.id, e.target.value)}
+                        inputMode="decimal"
+                        className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <div className="mb-1 text-xs text-zinc-500">
+                        カロリー (kcal)（自動計算）
+                      </div>
+                      <input
+                        value={r.kcal}
+                        onChange={(e) => onChangeRowKcal(r.id, e.target.value)}
+                        inputMode="decimal"
+                        className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      />
+                    </label>
+                  </div>
+                </div>
               ))}
-            </select>
-            <div className="mt-1 text-xs text-zinc-500">1gあたりkcal：{selected ? Number(selected.kcal_per_g).toFixed(6) : "－"}</div>
-          </label>
-        </div>
+            </div>
 
-        <div className="mt-5">
-          <div className="mb-2 text-sm font-medium">量</div>
+            <div className="mt-2 text-xs text-zinc-500">
+              ※ g入力でkcal自動、kcal入力でg自動（登録時の1gあたりkcalで計算）
+            </div>
+          </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
-              <input
-                value={grams}
-                onChange={(e) => {
-                  setLastEdited("g");
-                  setGrams(e.target.value);
-                }}
-                inputMode="decimal"
-                className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-              />
-            </label>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={saveGroup}
+              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 active:scale-[0.99]"
+            >
+              セットを保存
+            </button>
 
-            <label className="block">
-              <div className="mb-1 text-xs text-zinc-500">カロリー (kcal)（自動計算）</div>
-              <input
-                value={kcal}
-                onChange={(e) => {
-                  setLastEdited("k");
-                  setKcal(e.target.value);
-                }}
-                inputMode="decimal"
-                className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-              />
-            </label>
+            <Link
+              href="/entry/meal"
+              className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
+            >
+              戻る
+            </Link>
+
+            <button
+              onClick={del}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 active:scale-[0.99] sm:ml-auto"
+            >
+              このフード行を削除
+            </button>
           </div>
         </div>
+      ) : (
+        // ===== 単品修正モード =====
+        <div className="rounded-3xl border bg-white p-4 shadow-sm sm:p-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <div className="mb-1 text-sm font-medium">日時</div>
+              <input
+                type="datetime-local"
+                value={dtLocal}
+                onChange={(e) => setDtLocal(e.target.value)}
+                className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+              />
+            </label>
 
-        <div className="mt-5">
-          <div className="mb-2 text-sm font-medium">メモ</div>
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
-            rows={3}
-          />
+            <label className="block">
+              <div className="mb-1 text-sm font-medium">フード名</div>
+              <select
+                value={foodId === "" || foodId == null ? "" : String(foodId)}
+                onChange={(e) => {
+                  setFoodId(e.target.value || "");
+                  setLastEdited(null);
+                }}
+                className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+              >
+                {foods.map((f) => (
+                  <option key={String(f.id)} value={String(f.id)}>
+                    {f.food_name}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-1 text-xs text-zinc-500">1gあたりkcal：{selected ? Number(selected.kcal_per_g).toFixed(6) : "－"}</div>
+            </label>
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-sm font-medium">量</div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
+                <input
+                  value={grams}
+                  onChange={(e) => {
+                    setLastEdited("g");
+                    setGrams(e.target.value);
+                  }}
+                  inputMode="decimal"
+                  className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1 text-xs text-zinc-500">カロリー (kcal)（自動計算）</div>
+                <input
+                  value={kcal}
+                  onChange={(e) => {
+                    setLastEdited("k");
+                    setKcal(e.target.value);
+                  }}
+                  inputMode="decimal"
+                  className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-5">
+            <div className="mb-2 text-sm font-medium">メモ</div>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+              rows={3}
+            />
+          </div>
+
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={save}
+              className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 active:scale-[0.99]"
+            >
+              保存
+            </button>
+
+            <Link
+              href="/entry/meal"
+              className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
+            >
+              戻る
+            </Link>
+
+            <button
+              onClick={del}
+              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 active:scale-[0.99] sm:ml-auto"
+            >
+              削除
+            </button>
+          </div>
         </div>
-
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-          <button
-            onClick={save}
-            className="inline-flex items-center justify-center rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-zinc-800 active:scale-[0.99]"
-          >
-            保存
-          </button>
-
-          <Link
-            href="/entry/meal"
-            className="inline-flex items-center justify-center rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
-          >
-            戻る
-          </Link>
-
-          <button
-            onClick={del}
-            className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 active:scale-[0.99] sm:ml-auto"
-          >
-            削除
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
