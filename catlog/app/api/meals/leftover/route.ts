@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -30,10 +29,10 @@ function clamp(n: number, min: number, max: number) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
-  const supabase = getSupabaseAdmin();
   const body = (await req.json().catch(() => null)) as Body | null;
   if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
 
@@ -50,6 +49,7 @@ export async function POST(req: Request) {
     .from("cat_meals")
     .select("meal_group_id")
     .eq("id", anchorId)
+    .eq("cat_id", catId)
     .single();
 
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
@@ -61,7 +61,8 @@ export async function POST(req: Request) {
   const { data: meals, error: mErr } = await supabase
     .from("cat_meals")
     .select("id,grams,note")
-    .eq("meal_group_id", groupId);
+    .eq("meal_group_id", groupId)
+    .eq("cat_id", catId);
 
   if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 });
 

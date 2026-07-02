@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireCatContext } from "@/lib/serverAuth";
+
+export const dynamic = "force-dynamic";
 
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -20,6 +22,10 @@ function startOfTodayJST_asUTC(): Date {
 }
 
 export async function GET(req: Request) {
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
+
   try {
     const url = new URL(req.url);
     const days = Math.max(1, Math.min(90, Number(url.searchParams.get("days") ?? "14") || 14));
@@ -29,9 +35,10 @@ export async function GET(req: Request) {
 
     const selectCols = `${TS_COL}, ${STOOL_COL}, ${URINE_COL}`;
 
-    const { data: rows, error } = await supabaseAdmin
+    const { data: rows, error } = await supabase
       .from("cat_elims")
       .select(selectCols)
+      .eq("cat_id", catId)
       .gte(TS_COL, start.toISOString())
       .order(TS_COL, { ascending: true });
 

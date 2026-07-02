@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -60,10 +59,10 @@ function calcNet(r: any) {
 }
 
 export async function GET(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
-  const supabase = getSupabaseAdmin();
   const id = await getId(req, ctx);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
@@ -71,6 +70,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
     .from("cat_meals")
     .select("id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)")
     .eq("id", id)
+    .eq("cat_id", catId)
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -95,10 +95,10 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
-  const supabase = getSupabaseAdmin();
   const id = await getId(req, ctx);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
@@ -153,6 +153,7 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
       .from("cat_meals")
       .select("kcal_per_g_snapshot")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (!curErr) {
@@ -163,21 +164,29 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
     }
   }
 
-  const { error } = await supabase.from("cat_meals").update(patch).eq("id", id);
+  const { error } = await supabase
+    .from("cat_meals")
+    .update(patch)
+    .eq("id", id)
+    .eq("cat_id", catId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
-  const supabase = getSupabaseAdmin();
   const id = await getId(req, ctx);
   if (!id) return NextResponse.json({ error: "invalid id" }, { status: 400 });
 
-  const { error } = await supabase.from("cat_meals").delete().eq("id", id);
+  const { error } = await supabase
+    .from("cat_meals")
+    .delete()
+    .eq("id", id)
+    .eq("cat_id", catId);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   return NextResponse.json({ ok: true });

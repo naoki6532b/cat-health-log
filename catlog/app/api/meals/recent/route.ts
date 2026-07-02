@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -25,19 +24,19 @@ function calcNet(r: any) {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const url = new URL(req.url);
   const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20")));
-
-  const supabase = getSupabaseAdmin();
 
   const { data, error } = await supabase
     .from("cat_meals")
     .select(
       "id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)"
     )
+    .eq("cat_id", catId)
     .order("dt", { ascending: false })
     .limit(limit);
 

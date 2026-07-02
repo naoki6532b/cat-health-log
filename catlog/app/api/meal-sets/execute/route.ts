@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
-import type { Tables, TablesInsert } from "@/lib/database.types";
+import { requireCatContext } from "@/lib/serverAuth";
+import type { Tables } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +48,9 @@ function buildRowNote(groupNote: string | null, itemNote: string | null): string
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const body = (await req.json().catch(() => null)) as ExecuteBody | null;
   if (!body) {
@@ -76,8 +76,6 @@ export async function POST(req: Request) {
     }
     dtIso = parsed.toISOString();
   }
-
-  const supabase = getSupabaseAdmin();
 
   let setQuery = supabase
     .from("meal_sets")
@@ -139,7 +137,7 @@ export async function POST(req: Request) {
 
   const mealGroupId = crypto.randomUUID();
 
-  const inserts: TablesInsert<"cat_meals">[] = [];
+  const inserts: Record<string, unknown>[] = [];
   for (const item of items) {
     const food = pickFood(item.cat_foods);
     if (!food) {
@@ -167,6 +165,7 @@ export async function POST(req: Request) {
     const kcal = Number((grams * kcalPerG).toFixed(3));
 
     inserts.push({
+      cat_id: catId,
       dt: dtIso,
       food_id: item.food_id,
       grams,

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -45,8 +44,9 @@ function addDaysYmd(ymd: string, delta: number) {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const url = new URL(req.url);
   const fromParam = url.searchParams.get("from"); // "YYYY-MM-DD"
@@ -77,9 +77,10 @@ export async function GET(req: Request) {
   const PAGE_SIZE = 1000;
   const collected: Row[] = [];
   for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from("cat_meals")
       .select("dt, grams, kcal, leftover_g, kcal_per_g_snapshot, cat_foods(food_name)")
+      .eq("cat_id", catId)
       .gte("dt", fromIso)
       .lte("dt", toIso)
       .order("dt", { ascending: true })

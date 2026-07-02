@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { requireCatContext } from "@/lib/serverAuth";
+
+export const dynamic = "force-dynamic";
 
 type Row = {
   id: number;
@@ -7,7 +9,7 @@ type Row = {
   kind: string | null; // "うんち" / "おしっこ"
 };
 
-// JST の YYYY-MM-DD を作る（UTCズレ防止）
+// JST の YYYY-MM-DD を作る(UTCズレ防止)
 function ymdJst(iso: string): string {
   const d = new Date(iso);
   const jst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
@@ -23,7 +25,7 @@ function startDayIsoJst(days: number): { startIsoUtc: string; days: string[] } {
   const startJst = new Date(Date.UTC(jst.getUTCFullYear(), jst.getUTCMonth(), jst.getUTCDate(), 0, 0, 0));
   startJst.setUTCDate(startJst.getUTCDate() - (days - 1));
 
-  // そのJST 00:00 を UTC に戻した時刻（DB検索の下限に使う）
+  // そのJST 00:00 を UTC に戻した時刻(DB検索の下限に使う)
   const startIsoUtc = new Date(startJst.getTime() - 9 * 60 * 60 * 1000).toISOString();
 
   const out: string[] = [];
@@ -37,17 +39,22 @@ function startDayIsoJst(days: number): { startIsoUtc: string; days: string[] } {
 }
 
 export async function GET(req: Request) {
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
+
   try {
     const url = new URL(req.url);
     const days = Math.min(90, Math.max(1, Number(url.searchParams.get("days") ?? "30")));
 
     const { startIsoUtc, days: dayList } = startDayIsoJst(days);
 
-    const { data, error } = await supabaseAdmin
-     .from("cat_elims")
-     .select("id, at, kind")
-     .returns<Row[]>();
-
+    const { data, error } = await supabase
+      .from("cat_elims")
+      .select("id, at, kind")
+      .eq("cat_id", catId)
+      .gte("at", startIsoUtc)
+      .returns<Row[]>();
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -64,7 +71,7 @@ export async function GET(req: Request) {
       else if (k.includes("おし")) map[day].pee += 1;
     }
 
-    // 日付埋め（0の日も出す）
+    // 日付埋め(0の日も出す)
     const out = dayList.map((day) => {
       const v = map[day] ?? { poop: 0, pee: 0 };
       return { day, poop: v.poop, pee: v.pee };

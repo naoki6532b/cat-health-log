@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { requireUser } from "@/lib/serverAuth";
 import type { TablesInsert } from "@/lib/database.types";
+
+export const dynamic = "force-dynamic";
 
 function toNumOrNull(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -12,13 +13,12 @@ function toNumOrNull(v: unknown): number | null {
   return null;
 }
 
-export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+export async function GET() {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
-    const supabase = getSupabaseAdmin();
-
     const { data, error } = await supabase
       .from("cat_foods")
       .select(
@@ -40,8 +40,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, user } = auth;
 
   try {
     const body = await req.json().catch(() => null);
@@ -58,14 +59,13 @@ export async function POST(req: Request) {
       return new Response("food_name/kcal_per_g required", { status: 400 });
     }
 
-    const supabase = getSupabaseAdmin();
-
     const insertRow: TablesInsert<"cat_foods"> = {
       food_name,
       food_type,
       kcal_per_g,
       package_g,
       package_kcal,
+      user_id: user.id,
     };
 
     const { error } = await supabase.from("cat_foods").insert(insertRow);

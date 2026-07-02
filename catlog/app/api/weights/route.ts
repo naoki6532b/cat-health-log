@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -15,18 +14,19 @@ function parseJstDayEndExclusiveIso(ymd: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const url = new URL(req.url);
     const fromParam = url.searchParams.get("from");
     const toParam = url.searchParams.get("to");
 
-    const supabase = getSupabaseAdmin();
     let query = supabase
       .from("cat_weights")
       .select("id, dt, weight_kg, memo")
+      .eq("cat_id", catId)
       .order("dt", { ascending: false });
 
     if (fromParam || toParam) {
@@ -72,8 +72,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const body = (await req.json().catch(() => null)) as any;
@@ -92,10 +93,8 @@ export async function POST(req: NextRequest) {
 
     const memo = body.memo ?? null;
 
-    const supabase = getSupabaseAdmin();
-
     const { error } = await supabase.from("cat_weights").insert([
-      { dt, weight_kg: w, memo },
+      { cat_id: catId, dt, weight_kg: w, memo },
     ]);
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

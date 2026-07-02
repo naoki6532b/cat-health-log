@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -30,18 +30,19 @@ async function getId(ctx: RouteCtx) {
 }
 
 export async function GET(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
     if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    const supabase = getSupabaseAdmin() as any;
     const { data, error } = await supabase
       .from("cat_medical_records")
       .select("*")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (error) {
@@ -55,8 +56,9 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function PATCH(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
@@ -87,11 +89,11 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
       updated_at: new Date().toISOString(),
     };
 
-    const supabase = getSupabaseAdmin() as any;
     const { data, error } = await supabase
       .from("cat_medical_records")
       .update(patch)
       .eq("id", id)
+      .eq("cat_id", catId)
       .select("*")
       .single();
 
@@ -106,18 +108,20 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
     if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    const supabase = getSupabaseAdmin() as any;
+    // RLSスコープの取得で所有権を確認してからストレージを消す
     const { data: existing, error: readError } = await supabase
       .from("cat_medical_records")
       .select("pdf_path")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (readError) {
@@ -125,7 +129,8 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
     }
 
     if (existing?.pdf_path) {
-      const { error: storageError } = await supabase.storage
+      const admin = getSupabaseAdmin() as any;
+      const { error: storageError } = await admin.storage
         .from(BUCKET)
         .remove([existing.pdf_path]);
       if (storageError) {
@@ -133,7 +138,11 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       }
     }
 
-    const { error } = await supabase.from("cat_medical_records").delete().eq("id", id);
+    const { error } = await supabase
+      .from("cat_medical_records")
+      .delete()
+      .eq("id", id)
+      .eq("cat_id", catId);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }

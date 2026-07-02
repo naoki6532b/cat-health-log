@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireUser, type UserContext } from "@/lib/serverAuth";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -55,9 +54,7 @@ function pickFood(cat_foods: FoodRow | FoodRow[] | null): FoodRow | null {
   return cat_foods;
 }
 
-async function loadOne(setId: number) {
-  const supabase = getSupabaseAdmin();
-
+async function loadOne(supabase: UserContext["supabase"], setId: number) {
   const { data, error } = await supabase
     .from("meal_sets")
     .select(
@@ -133,8 +130,9 @@ export async function GET(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
     const { id } = await context.params;
@@ -144,7 +142,7 @@ export async function GET(
       return NextResponse.json({ error: "bad id" }, { status: 400 });
     }
 
-    const row = await loadOne(setId);
+    const row = await loadOne(supabase, setId);
     if (!row) {
       return NextResponse.json({ error: "meal set not found" }, { status: 404 });
     }
@@ -162,8 +160,9 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
     const { id } = await context.params;
@@ -177,8 +176,6 @@ export async function PATCH(
     if (!body) {
       return NextResponse.json({ error: "invalid json" }, { status: 400 });
     }
-
-    const supabase = getSupabaseAdmin();
 
     const { data: exists, error: existsErr } = await supabase
       .from("meal_sets")
@@ -353,7 +350,7 @@ export async function PATCH(
       }
     }
 
-    const row = await loadOne(setId);
+    const row = await loadOne(supabase, setId);
     return NextResponse.json({ ok: true, set: row });
   } catch (e: unknown) {
     return NextResponse.json(
@@ -367,8 +364,9 @@ export async function DELETE(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
     const { id } = await context.params;
@@ -377,8 +375,6 @@ export async function DELETE(
     if (!setId || Number.isNaN(setId)) {
       return NextResponse.json({ error: "bad id" }, { status: 400 });
     }
-
-    const supabase = getSupabaseAdmin();
 
     const { data: exists, error: existsErr } = await supabase
       .from("meal_sets")

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../../_pin";
+import { requireUser } from "@/lib/serverAuth";
 import type { TablesUpdate } from "@/lib/database.types";
+
+export const dynamic = "force-dynamic";
 
 function toNumOrNull(v: unknown): number | null {
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -16,8 +17,9 @@ export async function PATCH(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
     const { id } = await context.params;
@@ -37,8 +39,6 @@ export async function PATCH(
     if (!food_name || !kcal_per_g || kcal_per_g <= 0) {
       return new Response("food_name/kcal_per_g required", { status: 400 });
     }
-
-    const supabase = getSupabaseAdmin();
 
     const patch: TablesUpdate<"cat_foods"> = {
       food_name,
@@ -64,15 +64,14 @@ export async function DELETE(
   req: Request,
   context: { params: Promise<{ id: string }> }
 ) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   try {
     const { id } = await context.params;
     const n = Number(id);
     if (!n) return new Response("Bad id", { status: 400 });
-
-    const supabase = getSupabaseAdmin();
 
     const { error } = await supabase.from("cat_foods").delete().eq("id", n);
     if (error) return new Response(error.message, { status: 500 });

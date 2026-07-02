@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireUser } from "@/lib/serverAuth";
 import type { Tables, TablesInsert } from "@/lib/database.types";
 
 export const dynamic = "force-dynamic";
@@ -56,15 +55,14 @@ function pickFood(cat_foods: FoodRow | FoodRow[] | null): FoodRow | null {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase } = auth;
 
   const url = new URL(req.url);
   const includeInactive =
     url.searchParams.get("include_inactive") === "1" ||
     url.searchParams.get("include_inactive") === "true";
-
-  const supabase = getSupabaseAdmin();
 
   let query = supabase
     .from("meal_sets")
@@ -145,8 +143,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, user } = auth;
 
   const body = (await req.json().catch(() => null)) as MealSetCreateBody | null;
   if (!body) {
@@ -207,8 +206,6 @@ export async function POST(req: Request) {
     sortNoSet.add(item.sort_no);
   }
 
-  const supabase = getSupabaseAdmin();
-
   const foodIds = normalizedItems.map((x) => x.food_id as number);
   const { data: foods, error: foodsErr } = await supabase
     .from("cat_foods")
@@ -234,6 +231,7 @@ export async function POST(req: Request) {
     set_name: setName,
     note,
     is_active: isActive,
+    user_id: user.id,
   };
 
   const { data: insertedSet, error: setErr } = await supabase

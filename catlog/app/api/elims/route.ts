@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +30,9 @@ function normalizeKind(raw: unknown): "stool" | "urine" | "both" | null {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const url = new URL(req.url);
@@ -43,9 +43,10 @@ export async function GET(req: Request) {
       Math.min(90, Number(url.searchParams.get("days") ?? "14") || 14)
     );
 
-    let query = supabaseAdmin
+    let query = supabase
       .from("cat_elims")
       .select("id, dt, stool, urine, urine_ml, amount, note, vomit, kind, score")
+      .eq("cat_id", catId)
       .order("dt", { ascending: false });
 
     if (from && to) {
@@ -75,8 +76,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const body = await req.json().catch(() => null);
@@ -135,7 +137,8 @@ export async function POST(req: Request) {
         ? null
         : Number(body.score);
 
-    const { error } = await supabaseAdmin.from("cat_elims").insert({
+    const { error } = await supabase.from("cat_elims").insert({
+      cat_id: catId,
       dt,
       stool,
       urine,

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -50,18 +49,19 @@ function normalizePayload(body: any) {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const url = new URL(req.url);
     const category = String(url.searchParams.get("category") ?? "").trim();
     const q = String(url.searchParams.get("q") ?? "").trim();
 
-    const supabase = getSupabaseAdmin() as any;
     let query = supabase
       .from("cat_medical_records")
       .select("*")
+      .eq("cat_id", catId)
       .order("dt", { ascending: false })
       .order("id", { ascending: false });
 
@@ -99,8 +99,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const body = await req.json().catch(() => null);
@@ -111,11 +112,11 @@ export async function POST(req: Request) {
     const payload = normalizePayload(body);
     const now = new Date().toISOString();
 
-    const supabase = getSupabaseAdmin() as any;
     const { data, error } = await supabase
       .from("cat_medical_records")
       .insert({
         ...payload,
+        cat_id: catId,
         created_at: now,
         updated_at: now,
       })

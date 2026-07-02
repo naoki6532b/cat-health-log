@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -31,8 +30,9 @@ function calcNet(r: any) {
 }
 
 export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const url = new URL(req.url);
   const anchor_id = parseId(url.searchParams.get("anchor_id"));
@@ -40,12 +40,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "anchor_id is required" }, { status: 400 });
   }
 
-  const supabase = getSupabaseAdmin();
-
   const { data: anchor, error: aErr } = await supabase
     .from("cat_meals")
     .select("id,meal_group_id")
     .eq("id", anchor_id)
+    .eq("cat_id", catId)
     .single();
 
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
@@ -61,6 +60,7 @@ export async function GET(req: Request) {
       "id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)"
     )
     .eq("meal_group_id", groupId)
+    .eq("cat_id", catId)
     .order("dt", { ascending: true })
     .order("id", { ascending: true });
 
@@ -106,8 +106,9 @@ type PatchBody = {
  * - anchor と同じグループに属する行のみ更新する
  */
 export async function PATCH(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const body = (await req.json().catch(() => null)) as PatchBody | null;
   if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
@@ -119,12 +120,11 @@ export async function PATCH(req: Request) {
 
   const items = Array.isArray(body.items) ? body.items : [];
 
-  const supabase = getSupabaseAdmin();
-
   const { data: anchor, error: aErr } = await supabase
     .from("cat_meals")
     .select("meal_group_id")
     .eq("id", anchorId)
+    .eq("cat_id", catId)
     .single();
 
   if (aErr) return NextResponse.json({ error: aErr.message }, { status: 500 });
@@ -137,7 +137,8 @@ export async function PATCH(req: Request) {
   const { data: groupRows, error: gErr } = await supabase
     .from("cat_meals")
     .select("id,kcal_per_g_snapshot")
-    .eq("meal_group_id", groupId);
+    .eq("meal_group_id", groupId)
+    .eq("cat_id", catId);
 
   if (gErr) return NextResponse.json({ error: gErr.message }, { status: 500 });
 
@@ -193,7 +194,11 @@ export async function PATCH(req: Request) {
 
     if (Object.keys(patch).length === 0) continue;
 
-    const { error } = await supabase.from("cat_meals").update(patch).eq("id", id);
+    const { error } = await supabase
+      .from("cat_meals")
+      .update(patch)
+      .eq("id", id)
+      .eq("cat_id", catId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     updated++;
   }
@@ -203,7 +208,8 @@ export async function PATCH(req: Request) {
     const { error } = await supabase
       .from("cat_meals")
       .update({ dt: dtIso })
-      .eq("meal_group_id", groupId);
+      .eq("meal_group_id", groupId)
+      .eq("cat_id", catId);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   }
 

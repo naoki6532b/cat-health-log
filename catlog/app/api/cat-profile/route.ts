@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-const PROFILE_ID = 1;
-
+// 旧 cat_profile 互換のレスポンス形(フロントの改修を最小にする)
 type CatProfileRow = {
   id: number;
   cat_name: string | null;
@@ -14,6 +12,17 @@ type CatProfileRow = {
   created_at: string | null;
   updated_at: string | null;
 };
+
+function toProfile(row: any): CatProfileRow {
+  return {
+    id: row.id,
+    cat_name: row.name ?? null,
+    birthday: row.birthday ?? null,
+    photo_path: row.photo_path ?? null,
+    created_at: row.created_at ?? null,
+    updated_at: row.updated_at ?? null,
+  };
+}
 
 function cleanText(value: unknown) {
   const s = String(value ?? "").trim();
@@ -25,40 +34,32 @@ function isValidDate(value: string | null) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-const emptyProfile: CatProfileRow = {
-  id: PROFILE_ID,
-  cat_name: null,
-  birthday: null,
-  photo_path: null,
-  created_at: null,
-  updated_at: null,
-};
-
-export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+export async function GET() {
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
-    const supabase = getSupabaseAdmin() as any;
     const { data, error } = await supabase
-      .from("cat_profile")
-      .select("id, cat_name, birthday, photo_path, created_at, updated_at")
-      .eq("id", PROFILE_ID)
-      .maybeSingle();
+      .from("cats")
+      .select("id, name, birthday, photo_path, created_at, updated_at")
+      .eq("id", catId)
+      .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ data: (data ?? emptyProfile) as CatProfileRow });
+    return NextResponse.json({ data: toProfile(data) });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }
 }
 
 export async function PATCH(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const body = await req.json().catch(() => null);
@@ -77,28 +78,22 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "誕生日は YYYY-MM-DD 形式で入力してください" }, { status: 400 });
     }
 
-    const now = new Date().toISOString();
-    const supabase = getSupabaseAdmin() as any;
-
     const { data, error } = await supabase
-      .from("cat_profile")
-      .upsert(
-        {
-          id: PROFILE_ID,
-          cat_name: catName,
-          birthday,
-          updated_at: now,
-        },
-        { onConflict: "id" }
-      )
-      .select("id, cat_name, birthday, photo_path, created_at, updated_at")
+      .from("cats")
+      .update({
+        name: catName,
+        birthday,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", catId)
+      .select("id, name, birthday, photo_path, created_at, updated_at")
       .single();
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true, data });
+    return NextResponse.json({ ok: true, data: toProfile(data) });
   } catch (e: any) {
     return NextResponse.json({ error: String(e?.message ?? e) }, { status: 500 });
   }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "../../../_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -23,8 +23,9 @@ function sanitizeFileName(name: string) {
 }
 
 export async function GET(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
@@ -33,11 +34,12 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
     const url = new URL(req.url);
     const wantDownload = url.searchParams.get("download") === "1";
 
-    const supabase = getSupabaseAdmin() as any;
+    // RLSスコープの取得で所有権を確認してから署名URLを発行する
     const { data: record, error } = await supabase
       .from("cat_medical_records")
       .select("pdf_path, pdf_name, pdf_size")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (error) {
@@ -48,7 +50,8 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: "PDFが添付されていません" }, { status: 404 });
     }
 
-    const { data: signed, error: signError } = await supabase.storage
+    const admin = getSupabaseAdmin() as any;
+    const { data: signed, error: signError } = await admin.storage
       .from(BUCKET)
       .createSignedUrl(
         record.pdf_path,
@@ -71,8 +74,9 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
@@ -92,19 +96,22 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: "PDFは10MB以下にしてください" }, { status: 400 });
     }
 
-    const supabase = getSupabaseAdmin() as any;
+    // RLSスコープの取得で所有権を確認してからストレージを操作する
     const { data: existing, error: readError } = await supabase
       .from("cat_medical_records")
       .select("pdf_path")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (readError) {
       return NextResponse.json({ error: readError.message }, { status: 500 });
     }
 
+    const admin = getSupabaseAdmin() as any;
+
     if (existing?.pdf_path) {
-      const { error: oldDeleteError } = await supabase.storage
+      const { error: oldDeleteError } = await admin.storage
         .from(BUCKET)
         .remove([existing.pdf_path]);
       if (oldDeleteError) {
@@ -116,7 +123,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     const path = `${id}/${Date.now()}_${fileName}`;
     const bytes = await file.arrayBuffer();
 
-    const { error: uploadError } = await supabase.storage
+    const { error: uploadError } = await admin.storage
       .from(BUCKET)
       .upload(path, bytes, {
         contentType: "application/pdf",
@@ -138,6 +145,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
         updated_at: now,
       })
       .eq("id", id)
+      .eq("cat_id", catId)
       .select("*")
       .single();
 
@@ -152,18 +160,19 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
 }
 
 export async function DELETE(req: NextRequest, ctx: RouteCtx) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   try {
     const id = await getId(ctx);
     if (!id) return NextResponse.json({ error: "Bad id" }, { status: 400 });
 
-    const supabase = getSupabaseAdmin() as any;
     const { data: record, error } = await supabase
       .from("cat_medical_records")
       .select("pdf_path")
       .eq("id", id)
+      .eq("cat_id", catId)
       .single();
 
     if (error) {
@@ -174,7 +183,8 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ ok: true });
     }
 
-    const { error: storageError } = await supabase.storage
+    const admin = getSupabaseAdmin() as any;
+    const { error: storageError } = await admin.storage
       .from(BUCKET)
       .remove([record.pdf_path]);
 
@@ -191,7 +201,8 @@ export async function DELETE(req: NextRequest, ctx: RouteCtx) {
         pdf_uploaded_at: null,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("cat_id", catId);
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });

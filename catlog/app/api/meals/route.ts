@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
-import { checkPin } from "@/app/api/_pin";
+import { requireCatContext } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -43,17 +42,17 @@ function calcNet(r: any) {
   return { net_grams, net_kcal };
 }
 
-export async function GET(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
-
-  const supabase = getSupabaseAdmin();
+export async function GET() {
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
   const { data, error } = await supabase
     .from("cat_meals")
     .select(
       "id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)"
     )
+    .eq("cat_id", catId)
     .order("dt", { ascending: false })
     .limit(200);
 
@@ -81,10 +80,10 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const pinRes = checkPin(req);
-  if (pinRes) return pinRes;
+  const auth = await requireCatContext();
+  if (auth instanceof NextResponse) return auth;
+  const { supabase, catId } = auth;
 
-  const supabase = getSupabaseAdmin();
   const body = (await req.json().catch(() => null)) as MealIn | null;
   if (!body) return NextResponse.json({ error: "Bad JSON" }, { status: 400 });
 
@@ -130,6 +129,7 @@ export async function POST(req: Request) {
   const { data, error } = await supabase
     .from("cat_meals")
     .insert({
+      cat_id: catId,
       dt,
       food_id,
       grams,
