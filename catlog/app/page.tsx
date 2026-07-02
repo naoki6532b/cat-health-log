@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { ChevronRight, Cake, CalendarHeart, PencilLine } from "lucide-react";
+import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { appNav } from "@/lib/appNav";
-import { getSupabaseAdmin } from "@/lib/supabaseAdmin";
+import { createSupabaseServer } from "@/lib/supabase/server";
+import { CAT_COOKIE } from "@/lib/serverAuth";
 
 export const dynamic = "force-dynamic";
 
-const PROFILE_ID = 1;
 const PROFILE_BUCKET =
   process.env.CATLOG_PROFILE_BUCKET ||
   process.env.NEXT_PUBLIC_CATLOG_PROFILE_BUCKET ||
@@ -50,32 +52,54 @@ function calcAgeJp(dateStr: string | null) {
 }
 
 async function loadProfile(): Promise<{ catName: string; birthday: string | null; photoUrl: string | null }> {
-  try {
-    const supabase = getSupabaseAdmin() as any;
-    const { data, error } = await supabase
-      .from("cat_profile")
-      .select("cat_name, birthday, photo_path")
-      .eq("id", PROFILE_ID)
+  const supabase = await createSupabaseServer();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  // 選択中の猫を解決(1匹なら自動選択、未選択・未登録なら選択画面へ)
+  const cookieStore = await cookies();
+  const raw = cookieStore.get(CAT_COOKIE)?.value ?? "";
+  let catId: number | null = /^\d+$/.test(raw) ? Number(raw) : null;
+
+  if (catId != null) {
+    const { data } = await supabase
+      .from("cats")
+      .select("id")
+      .eq("id", catId)
       .maybeSingle();
-
-    if (error) {
-      return { catName: "愛猫", birthday: null, photoUrl: null };
-    }
-
-    const profile = (data ?? null) as CatProfile | null;
-    const catName = profile?.cat_name?.trim() || "愛猫";
-    const birthday = profile?.birthday ?? null;
-
-    let photoUrl: string | null = null;
-    if (profile?.photo_path) {
-      const result = supabase.storage.from(PROFILE_BUCKET).getPublicUrl(profile.photo_path);
-      photoUrl = result?.data?.publicUrl ?? null;
-    }
-
-    return { catName, birthday, photoUrl };
-  } catch {
-    return { catName: "愛猫", birthday: null, photoUrl: null };
+    if (!data) catId = null;
   }
+
+  if (catId == null) {
+    const { data: cats } = await supabase
+      .from("cats")
+      .select("id")
+      .order("id")
+      .limit(2);
+    if (!cats || cats.length !== 1) redirect("/cats");
+    catId = Number(cats[0].id);
+  }
+
+  const { data } = await supabase
+    .from("cats")
+    .select("name, birthday, photo_path")
+    .eq("id", catId)
+    .maybeSingle();
+
+  const profile = (data ?? null) as { name: string | null; birthday: string | null; photo_path: string | null } | null;
+  const catName = profile?.name?.trim() || "愛猫";
+  const birthday = profile?.birthday ?? null;
+
+  let photoUrl: string | null = null;
+  if (profile?.photo_path) {
+    const result = supabase.storage.from(PROFILE_BUCKET).getPublicUrl(profile.photo_path);
+    photoUrl = result?.data?.publicUrl ?? null;
+  }
+
+  return { catName, birthday, photoUrl };
 }
 
 export default async function HomePage() {

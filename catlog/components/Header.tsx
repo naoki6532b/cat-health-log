@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { appNav } from "@/lib/appNav";
+import { supabase } from "@/lib/supabaseClient";
 
 function cls(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -10,7 +11,15 @@ function cls(...values: Array<string | false | null | undefined>) {
 
 export default function Header() {
   const pathname = usePathname();
+  const router = useRouter();
   const isHome = pathname === "/";
+  const isAuthPage = pathname === "/login" || pathname === "/signup";
+
+  async function logout() {
+    await supabase.auth.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
 
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-head/80 backdrop-blur">
@@ -33,23 +42,39 @@ export default function Header() {
           </Link>
         )}
 
-        <nav className="ml-auto hidden flex-wrap items-center gap-2 sm:flex">
-          {!isHome && (
-            <Link href="/" className="navbtn">
-              トップ
-            </Link>
-          )}
+        {!isAuthPage && (
+          <nav className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="hidden flex-wrap items-center gap-2 sm:flex">
+              {!isHome && (
+                <Link href="/" className="navbtn">
+                  トップ
+                </Link>
+              )}
 
-          {appNav.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cls("navbtn", pathname === item.href && "bg-white")}
-            >
-              {item.label}
+              {appNav.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cls("navbtn", pathname === item.href && "bg-white")}
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </div>
+
+            <Link href="/cats" className="navbtn" title="猫の切り替え">
+              🐾 猫切替
             </Link>
-          ))}
-        </nav>
+            <button
+              type="button"
+              onClick={logout}
+              className="navbtn"
+              title="ログアウト"
+            >
+              ログアウト
+            </button>
+          </nav>
+        )}
       </div>
     </header>
   );
