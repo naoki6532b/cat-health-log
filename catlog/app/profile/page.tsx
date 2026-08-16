@@ -4,6 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
 import { DEFAULT_DAILY_KCAL_WARNING_THRESHOLD } from "@/lib/calorieWarning";
+import {
+  DEFAULT_STOOL_WARNING_DAYS,
+  DEFAULT_URINE_WARNING_DAYS,
+  DEFAULT_WEIGHT_WARNING_DAYS,
+} from "@/lib/healthRecordWarning";
 
 type CatProfile = {
   id: number;
@@ -11,6 +16,9 @@ type CatProfile = {
   birthday: string | null;
   photo_path: string | null;
   daily_kcal_warning_threshold: number;
+  weight_warning_days: number;
+  stool_warning_days: number;
+  urine_warning_days: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -55,6 +63,15 @@ export default function ProfilePage() {
   const [dailyKcalWarningThreshold, setDailyKcalWarningThreshold] = useState(
     String(DEFAULT_DAILY_KCAL_WARNING_THRESHOLD)
   );
+  const [weightWarningDays, setWeightWarningDays] = useState(
+    String(DEFAULT_WEIGHT_WARNING_DAYS)
+  );
+  const [stoolWarningDays, setStoolWarningDays] = useState(
+    String(DEFAULT_STOOL_WARNING_DAYS)
+  );
+  const [urineWarningDays, setUrineWarningDays] = useState(
+    String(DEFAULT_URINE_WARNING_DAYS)
+  );
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -76,6 +93,9 @@ export default function ProfilePage() {
         birthday: null,
         photo_path: null,
         daily_kcal_warning_threshold: DEFAULT_DAILY_KCAL_WARNING_THRESHOLD,
+        weight_warning_days: DEFAULT_WEIGHT_WARNING_DAYS,
+        stool_warning_days: DEFAULT_STOOL_WARNING_DAYS,
+        urine_warning_days: DEFAULT_URINE_WARNING_DAYS,
         created_at: null,
         updated_at: null,
       };
@@ -88,6 +108,15 @@ export default function ProfilePage() {
         next.daily_kcal_warning_threshold ??
           DEFAULT_DAILY_KCAL_WARNING_THRESHOLD
       )
+    );
+    setWeightWarningDays(
+      String(next.weight_warning_days ?? DEFAULT_WEIGHT_WARNING_DAYS)
+    );
+    setStoolWarningDays(
+      String(next.stool_warning_days ?? DEFAULT_STOOL_WARNING_DAYS)
+    );
+    setUrineWarningDays(
+      String(next.urine_warning_days ?? DEFAULT_URINE_WARNING_DAYS)
     );
   }
 
@@ -106,6 +135,9 @@ export default function ProfilePage() {
           cat_name: catName,
           birthday: birthday || null,
           daily_kcal_warning_threshold: Number(dailyKcalWarningThreshold),
+          weight_warning_days: Number(weightWarningDays),
+          stool_warning_days: Number(stoolWarningDays),
+          urine_warning_days: Number(urineWarningDays),
         }),
       });
 
@@ -274,6 +306,59 @@ export default function ProfilePage() {
               />
             </label>
 
+            <div className="grid gap-4 sm:grid-cols-3">
+              <label className="block text-sm">
+                <div className="mb-1 font-medium text-zinc-700">
+                  体重計測警告日数
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={weightWarningDays}
+                  onChange={(e) => setWeightWarningDays(e.target.value)}
+                  className="input"
+                />
+                <div className="mt-1 text-xs text-zinc-500">
+                  過去n日間に体重記録がない場合に警告します。
+                </div>
+              </label>
+
+              <label className="block text-sm">
+                <div className="mb-1 font-medium text-zinc-700">
+                  うんち警告日数
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={stoolWarningDays}
+                  onChange={(e) => setStoolWarningDays(e.target.value)}
+                  className="input"
+                />
+                <div className="mt-1 text-xs text-zinc-500">
+                  n日を超えて記録がない場合に警告します。
+                </div>
+              </label>
+
+              <label className="block text-sm">
+                <div className="mb-1 font-medium text-zinc-700">
+                  おしっこ警告日数
+                </div>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={urineWarningDays}
+                  onChange={(e) => setUrineWarningDays(e.target.value)}
+                  className="input"
+                />
+                <div className="mt-1 text-xs text-zinc-500">
+                  n日を超えて記録がない場合に警告します。
+                </div>
+              </label>
+            </div>
+
             <label className="block text-sm">
               <div className="mb-1 font-medium text-zinc-700">
                 警告基準カロリー（kcal／日）
@@ -309,6 +394,8 @@ export default function ProfilePage() {
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>トップ画面では年齢を自動計算して「n歳nか月」で表示します。</li>
                 <li>警告基準カロリーの初期値は240 kcal／日です。</li>
+                <li>体重計測警告日数の初期値は10日です。</li>
+                <li>うんち・おしっこ警告日数の初期値は各2日です。</li>
                 <li>写真は jpg / png / webp、5MB 以下です。</li>
                 <li>ヘッダーからはどの画面でもトップへ戻れますが、トップ画面自身にはトップボタンは出しません。</li>
               </ul>

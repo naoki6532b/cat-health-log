@@ -16,6 +16,13 @@ import {
   type CalorieMealRecord,
   type DailyCalorieWarning,
 } from "@/lib/calorieWarning";
+import {
+  calculateHealthRecordWarnings,
+  DEFAULT_STOOL_WARNING_DAYS,
+  DEFAULT_URINE_WARNING_DAYS,
+  DEFAULT_WEIGHT_WARNING_DAYS,
+  normalizeWarningDays,
+} from "@/lib/healthRecordWarning";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +74,7 @@ async function loadProfile(): Promise<{
   birthday: string | null;
   photoUrl: string | null;
   calorieWarnings: DailyCalorieWarning[];
+  recordWarnings: string[];
 }> {
   const supabase = await createSupabaseServer();
 
@@ -106,10 +114,18 @@ async function loadProfile(): Promise<{
     recentDates[recentDates.length - 1]
   );
 
-  const [profileResult, mealsResult] = await Promise.all([
+  const [
+    profileResult,
+    mealsResult,
+    latestWeightResult,
+    latestStoolResult,
+    latestUrineResult,
+  ] = await Promise.all([
     supabase
       .from("cats")
-      .select("name, birthday, photo_path, daily_kcal_warning_threshold")
+      .select(
+        "name, birthday, photo_path, daily_kcal_warning_threshold, weight_warning_days, stool_warning_days, urine_warning_days"
+      )
       .eq("id", catId)
       .maybeSingle(),
     supabase
@@ -118,6 +134,29 @@ async function loadProfile(): Promise<{
       .eq("cat_id", catId)
       .gte("dt", fromIso)
       .lte("dt", toIso),
+    supabase
+      .from("cat_weights")
+      .select("dt")
+      .eq("cat_id", catId)
+      .order("dt", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("cat_elims")
+      .select("dt,kind,stool,urine")
+      .eq("cat_id", catId)
+      .or("stool.not.is.null,kind.eq.stool,kind.eq.both")
+      .order("dt", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("cat_elims")
+      .select("dt,kind,stool,urine")
+      .eq("cat_id", catId)
+      .or("urine.not.is.null,kind.eq.urine,kind.eq.both")
+      .order("dt", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const data = profileResult.data;
@@ -127,6 +166,9 @@ async function loadProfile(): Promise<{
     birthday: string | null;
     photo_path: string | null;
     daily_kcal_warning_threshold: number | null;
+    weight_warning_days: number | null;
+    stool_warning_days: number | null;
+    urine_warning_days: number | null;
   } | null;
   const catName = profile?.name?.trim() || "愛猫";
   const birthday = profile?.birthday ?? null;
@@ -149,7 +191,35 @@ async function loadProfile(): Promise<{
         todayYmd,
       });
 
-  return { catName, birthday, photoUrl, calorieWarnings };
+  const recordWarnings = calculateHealthRecordWarnings({
+    weightRows: latestWeightResult.data ? [latestWeightResult.data] : [],
+    eliminationRows: [latestStoolResult.data, latestUrineResult.data].filter(
+      (row): row is NonNullable<typeof row> => row != null
+    ),
+    settings: {
+      weightWarningDays: normalizeWarningDays(
+        profile?.weight_warning_days,
+        DEFAULT_WEIGHT_WARNING_DAYS
+      ),
+      stoolWarningDays: normalizeWarningDays(
+        profile?.stool_warning_days,
+        DEFAULT_STOOL_WARNING_DAYS
+      ),
+      urineWarningDays: normalizeWarningDays(
+        profile?.urine_warning_days,
+        DEFAULT_URINE_WARNING_DAYS
+      ),
+    },
+    todayYmd,
+  })
+    .filter((warning) => {
+      if (warning.key === "weight") return !latestWeightResult.error;
+      if (warning.key === "stool") return !latestStoolResult.error;
+      return !latestUrineResult.error;
+    })
+    .map((warning) => warning.message);
+
+  return { catName, birthday, photoUrl, calorieWarnings, recordWarnings };
 }
 
 export default async function HomePage() {
@@ -159,7 +229,10 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
-      <CalorieWarningBanner warnings={profile.calorieWarnings} />
+      <CalorieWarningBanner
+        warnings={profile.calorieWarnings}
+        additionalWarnings={profile.recordWarnings}
+      />
 
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">猫ログ</h1>

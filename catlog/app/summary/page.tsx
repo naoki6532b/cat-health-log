@@ -10,6 +10,13 @@ import {
   DEFAULT_DAILY_KCAL_WARNING_THRESHOLD,
   normalizeCalorieWarningThreshold,
 } from "@/lib/calorieWarning";
+import {
+  calculateHealthRecordWarnings,
+  DEFAULT_STOOL_WARNING_DAYS,
+  DEFAULT_URINE_WARNING_DAYS,
+  DEFAULT_WEIGHT_WARNING_DAYS,
+  normalizeWarningDays,
+} from "@/lib/healthRecordWarning";
 
 type MealRow = {
   dt: string;
@@ -900,6 +907,11 @@ export default function SummaryPage() {
   const [dailyKcalWarningThreshold, setDailyKcalWarningThreshold] = useState(
     DEFAULT_DAILY_KCAL_WARNING_THRESHOLD
   );
+  const [healthWarningSettings, setHealthWarningSettings] = useState({
+    weightWarningDays: DEFAULT_WEIGHT_WARNING_DAYS,
+    stoolWarningDays: DEFAULT_STOOL_WARNING_DAYS,
+    urineWarningDays: DEFAULT_URINE_WARNING_DAYS,
+  });
   const [hasLoadedCalorieData, setHasLoadedCalorieData] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -1015,7 +1027,12 @@ export default function SummaryPage() {
     const wJson = (await wRes.json()) as { data: WeightRow[] };
     const eJson = (await eRes.json()) as { data: ElimRow[] };
     const profileJson = (await profileRes.json()) as {
-      data?: { daily_kcal_warning_threshold?: number | null };
+      data?: {
+        daily_kcal_warning_threshold?: number | null;
+        weight_warning_days?: number | null;
+        stool_warning_days?: number | null;
+        urine_warning_days?: number | null;
+      };
     };
 
     setRows(meals ?? []);
@@ -1026,6 +1043,20 @@ export default function SummaryPage() {
         profileJson.data?.daily_kcal_warning_threshold
       )
     );
+    setHealthWarningSettings({
+      weightWarningDays: normalizeWarningDays(
+        profileJson.data?.weight_warning_days,
+        DEFAULT_WEIGHT_WARNING_DAYS
+      ),
+      stoolWarningDays: normalizeWarningDays(
+        profileJson.data?.stool_warning_days,
+        DEFAULT_STOOL_WARNING_DAYS
+      ),
+      urineWarningDays: normalizeWarningDays(
+        profileJson.data?.urine_warning_days,
+        DEFAULT_URINE_WARNING_DAYS
+      ),
+    });
     setHasLoadedCalorieData(true);
   };
 
@@ -1405,6 +1436,18 @@ export default function SummaryPage() {
           })
         : [],
     [rows, dailyKcalWarningThreshold, hasLoadedCalorieData]
+  );
+
+  const healthRecordWarnings = useMemo(
+    () =>
+      hasLoadedCalorieData
+        ? calculateHealthRecordWarnings({
+            weightRows: weights,
+            eliminationRows: elimRows,
+            settings: healthWarningSettings,
+          }).map((warning) => warning.message)
+        : [],
+    [weights, elimRows, healthWarningSettings, hasLoadedCalorieData]
   );
 
   const groupChartWidthPx = useMemo(() => {
@@ -1937,7 +1980,10 @@ export default function SummaryPage() {
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
-      <CalorieWarningBanner warnings={calorieWarnings} />
+      <CalorieWarningBanner
+        warnings={calorieWarnings}
+        additionalWarnings={healthRecordWarnings}
+      />
 
       <h2>集計</h2>
       {msg && <div style={{ color: "red" }}>{msg}</div>}

@@ -5,10 +5,12 @@ import {
 
 export default function CalorieWarningBanner({
   warnings,
+  additionalWarnings = [],
 }: {
   warnings: DailyCalorieWarning[];
+  additionalWarnings?: string[];
 }) {
-  if (warnings.length === 0) return null;
+  if (warnings.length === 0 && additionalWarnings.length === 0) return null;
 
   return (
     <div
@@ -20,6 +22,9 @@ export default function CalorieWarningBanner({
           <div key={warning.date}>
             {formatCalorieWarningDate(warning.date)}の給餌カロリーが不十分です
           </div>
+        ))}
+        {additionalWarnings.map((warning) => (
+          <div key={warning}>{warning}</div>
         ))}
       </div>
     </div>
