@@ -93,6 +93,7 @@ export default function MealEditPage() {
 
   // セット（同一 meal_group_id）の修正用。2件以上ならセットモード。
   const [groupRows, setGroupRows] = useState<GroupEditRow[]>([]);
+  const [deletingRowId, setDeletingRowId] = useState<number | null>(null);
   const isGroup = groupRows.length > 1;
 
   const selected = useMemo(() => {
@@ -303,6 +304,39 @@ export default function MealEditPage() {
     }
   };
 
+  const deleteGroupRow = async (row: GroupEditRow) => {
+    if (deletingRowId != null) return;
+
+    const foodName = row.food_name ?? `food_id:${row.food_id}`;
+    if (!confirm(`セット給餌から「${foodName}」だけを削除しますか？`)) return;
+
+    setMsg("");
+    setDeletingRowId(row.id);
+
+    try {
+      const remainingRows = groupRows.filter((item) => item.id !== row.id);
+      const res = await apiFetch(`/api/meals/${row.id}`, { method: "DELETE" });
+      await ensureOk(res);
+
+      if (String(row.id) === String(id)) {
+        const nextRow = remainingRows[0];
+        if (nextRow) {
+          router.replace(`/meals/${nextRow.id}`);
+        } else {
+          router.push("/entry/meal");
+        }
+        return;
+      }
+
+      setMsg(`「${foodName}」だけを削除しました`);
+      await loadMeal();
+    } catch (e: unknown) {
+      setMsg("ERROR: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setDeletingRowId(null);
+    }
+  };
+
   const save = async () => {
     setMsg("");
     try {
@@ -445,6 +479,19 @@ export default function MealEditPage() {
                       />
                     </label>
                   </div>
+
+                  <div className="mt-3 flex justify-end border-t pt-3">
+                    <button
+                      type="button"
+                      onClick={() => deleteGroupRow(r)}
+                      disabled={deletingRowId != null}
+                      className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {deletingRowId === r.id
+                        ? "削除中..."
+                        : "このフードだけ削除"}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -469,12 +516,6 @@ export default function MealEditPage() {
               戻る
             </Link>
 
-            <button
-              onClick={del}
-              className="inline-flex items-center justify-center rounded-2xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-700 hover:bg-red-50 active:scale-[0.99] sm:ml-auto"
-            >
-              このフード行を削除
-            </button>
           </div>
         </div>
       ) : (
