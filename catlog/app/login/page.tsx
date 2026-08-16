@@ -23,7 +23,22 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setMsg("メールアドレスまたはパスワードが違います");
+      console.error("Supabase login error:", {
+        name: error.name,
+        message: error.message,
+        status: error.status,
+        code: error.code,
+      });
+
+      const detail = [
+        error.message,
+        error.code ? `code: ${error.code}` : "",
+        error.status ? `status: ${error.status}` : "",
+      ]
+        .filter(Boolean)
+        .join(" / ");
+
+      setMsg(`ログインに失敗しました: ${detail}`);
       setBusy(false);
       return;
     }
@@ -67,7 +82,7 @@ export default function LoginPage() {
             />
           </label>
 
-          {msg && <p className="text-sm text-red-600">{msg}</p>}
+          {msg && <p className="text-sm text-red-600 break-words">{msg}</p>}
 
           <button
             type="submit"
