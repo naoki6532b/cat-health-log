@@ -34,6 +34,10 @@ body {
 }
 .navbtn:hover { background: rgba(255,255,255,1); }
 
+.site-header .navbtn {
+  border-radius: 0.5rem;
+}
+
 .bottombtn {
   @apply flex flex-col items-center justify-center gap-1 rounded-2xl border px-2 py-2 text-[11px] shadow-sm transition;
   border-color: var(--line);
