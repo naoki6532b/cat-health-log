@@ -31,6 +31,69 @@ function photoUrl(path: string | null) {
   return `${SUPABASE_URL}/storage/v1/object/public/${PROFILE_BUCKET}/${path}`;
 }
 
+function drawCroppedPhoto(
+  canvas: HTMLCanvasElement,
+  image: HTMLImageElement,
+  zoom: number,
+  positionX: number,
+  positionY: number
+) {
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const targetAspect = canvas.width / canvas.height;
+  const sourceAspect = image.naturalWidth / image.naturalHeight;
+  let baseWidth: number;
+  let baseHeight: number;
+
+  if (sourceAspect > targetAspect) {
+    baseHeight = image.naturalHeight;
+    baseWidth = baseHeight * targetAspect;
+  } else {
+    baseWidth = image.naturalWidth;
+    baseHeight = baseWidth / targetAspect;
+  }
+
+  const cropWidth = baseWidth / zoom;
+  const cropHeight = baseHeight / zoom;
+  const sourceX =
+    (image.naturalWidth - cropWidth) *
+    (Math.min(100, Math.max(0, positionX)) / 100);
+  const sourceY =
+    (image.naturalHeight - cropHeight) *
+    (Math.min(100, Math.max(0, positionY)) / 100);
+
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(
+    image,
+    sourceX,
+    sourceY,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    canvas.width,
+    canvas.height
+  );
+}
+
+function canvasToJpeg(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("画像の切り出しに失敗しました"));
+      },
+      "image/jpeg",
+      0.9
+    );
+  });
+}
+
 function calcAgeLabel(birthday: string | null) {
   if (!birthday) return "—";
 
@@ -76,6 +139,13 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cropImageRef = useRef<HTMLImageElement | null>(null);
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null);
+  const [cropFileName, setCropFileName] = useState("cat-profile");
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropPositionX, setCropPositionX] = useState(50);
+  const [cropPositionY, setCropPositionY] = useState(50);
 
   async function load() {
     setMsg("");
@@ -123,6 +193,42 @@ export default function ProfilePage() {
   useEffect(() => {
     void load().catch((e) => setMsg(`ERROR: ${String(e?.message ?? e)}`));
   }, []);
+
+  useEffect(() => {
+    if (!cropSourceUrl) {
+      cropImageRef.current = null;
+      return;
+    }
+
+    const image = new Image();
+    image.onload = () => {
+      cropImageRef.current = image;
+      if (cropCanvasRef.current) {
+        drawCroppedPhoto(cropCanvasRef.current, image, 1, 50, 50);
+      }
+    };
+    image.onerror = () => setMsg("ERROR: 画像を読み込めませんでした");
+    image.src = cropSourceUrl;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      URL.revokeObjectURL(cropSourceUrl);
+    };
+  }, [cropSourceUrl]);
+
+  useEffect(() => {
+    if (!cropCanvasRef.current || !cropImageRef.current) return;
+    drawCroppedPhoto(
+      cropCanvasRef.current,
+      cropImageRef.current,
+      cropZoom,
+      cropPositionX,
+      cropPositionY
+    );
+  }, [cropZoom, cropPositionX, cropPositionY]);
 
   async function onSave() {
     setSaving(true);
@@ -178,11 +284,62 @@ export default function ProfilePage() {
 
       setMsg("✅ 写真を更新しました");
       await load();
+      return true;
     } catch (e: any) {
       setMsg(`ERROR: ${String(e?.message ?? e)}`);
+      return false;
     } finally {
       setUploading(false);
       if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  function openCropEditor(file: File) {
+    if (!file.type.startsWith("image/")) {
+      setMsg("ERROR: 画像ファイルを選択してください");
+      return;
+    }
+
+    setMsg("");
+    setCropFileName(file.name.replace(/\.[^.]+$/, "") || "cat-profile");
+    setCropZoom(1);
+    setCropPositionX(50);
+    setCropPositionY(50);
+    setCropSourceUrl(URL.createObjectURL(file));
+  }
+
+  function closeCropEditor() {
+    setCropSourceUrl(null);
+    if (fileRef.current) fileRef.current.value = "";
+  }
+
+  async function saveCroppedPhoto() {
+    const image = cropImageRef.current;
+    if (!image) {
+      setMsg("ERROR: 画像の読み込みが完了していません");
+      return;
+    }
+
+    const outputCanvas = document.createElement("canvas");
+    outputCanvas.width = 800;
+    outputCanvas.height = 1000;
+    drawCroppedPhoto(
+      outputCanvas,
+      image,
+      cropZoom,
+      cropPositionX,
+      cropPositionY
+    );
+
+    try {
+      const blob = await canvasToJpeg(outputCanvas);
+      const croppedFile = new File([blob], `${cropFileName}.jpg`, {
+        type: "image/jpeg",
+      });
+      const saved = await uploadPhoto(croppedFile);
+      if (saved) closeCropEditor();
+    } catch (e: unknown) {
+      setMsg(`ERROR: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -231,9 +388,9 @@ export default function ProfilePage() {
         <div className="card overflow-hidden">
           <div className="bg-zinc-50">
             {currentPhotoUrl ? (
-              <img src={currentPhotoUrl} alt="猫プロフィール写真" className="h-[320px] w-full object-cover" />
+              <img src={currentPhotoUrl} alt="猫プロフィール写真" className="aspect-[4/5] w-full object-cover" />
             ) : (
-              <div className="flex h-[320px] items-center justify-center text-sm text-zinc-500">
+              <div className="flex aspect-[4/5] items-center justify-center text-sm text-zinc-500">
                 写真が未設定です
               </div>
             )}
@@ -273,7 +430,7 @@ export default function ProfilePage() {
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) void uploadPhoto(file);
+                  if (file) openCropEditor(file);
                 }}
               />
 
@@ -403,6 +560,112 @@ export default function ProfilePage() {
           </div>
         </div>
       </section>
+
+      {cropSourceUrl ? (
+        <div
+          className="fixed inset-0 z-[9999] overflow-y-auto bg-black/55 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="photo-crop-title"
+        >
+          <div className="mx-auto my-4 w-full max-w-2xl rounded-3xl bg-white p-4 shadow-xl sm:p-6">
+            <div>
+              <h2 id="photo-crop-title" className="text-lg font-semibold">
+                写真の表示範囲を調整
+              </h2>
+              <p className="mt-1 text-sm text-zinc-600">
+                枠内に見えている範囲がトップ画面の写真として保存されます。
+              </p>
+            </div>
+
+            <div className="mt-4 grid items-start gap-5 sm:grid-cols-[320px_minmax(0,1fr)]">
+              <div className="mx-auto overflow-hidden rounded-2xl border bg-zinc-100 shadow-inner">
+                <canvas
+                  ref={cropCanvasRef}
+                  width={320}
+                  height={400}
+                  className="block h-auto w-full max-w-[320px]"
+                />
+              </div>
+
+              <div className="space-y-4">
+                <label className="block text-sm">
+                  <div className="flex items-center justify-between gap-3 font-medium text-zinc-700">
+                    <span>拡大率</span>
+                    <span>{cropZoom.toFixed(1)}倍</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="0.1"
+                    value={cropZoom}
+                    onChange={(e) => setCropZoom(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <label className="block text-sm">
+                  <div className="font-medium text-zinc-700">左右位置</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={cropPositionX}
+                    onChange={(e) => setCropPositionX(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <label className="block text-sm">
+                  <div className="font-medium text-zinc-700">上下位置</div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={cropPositionY}
+                    onChange={(e) => setCropPositionY(Number(e.target.value))}
+                    className="mt-2 w-full"
+                  />
+                </label>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCropZoom(1);
+                    setCropPositionX(50);
+                    setCropPositionY(50);
+                  }}
+                  className="w-full rounded-2xl border bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50"
+                >
+                  調整をリセット
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeCropEditor}
+                disabled={uploading}
+                className="rounded-2xl border bg-white px-4 py-2.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveCroppedPhoto()}
+                disabled={uploading}
+                className="rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+              >
+                {uploading ? "保存中..." : "この範囲で写真を保存"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
