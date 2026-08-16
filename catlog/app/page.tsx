@@ -5,6 +5,17 @@ import { cookies } from "next/headers";
 import { appNav } from "@/lib/appNav";
 import { createSupabaseServer } from "@/lib/supabase/server";
 import { CAT_COOKIE } from "@/lib/serverAuth";
+import CalorieWarningBanner from "@/components/CalorieWarningBanner";
+import {
+  calculateDailyCalorieWarnings,
+  DEFAULT_DAILY_KCAL_WARNING_THRESHOLD,
+  getJstDayRangeIso,
+  getRecentJstDateKeys,
+  jstYmd,
+  normalizeCalorieWarningThreshold,
+  type CalorieMealRecord,
+  type DailyCalorieWarning,
+} from "@/lib/calorieWarning";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +62,12 @@ function calcAgeJp(dateStr: string | null) {
   return `${years}歳${months}か月`;
 }
 
-async function loadProfile(): Promise<{ catName: string; birthday: string | null; photoUrl: string | null }> {
+async function loadProfile(): Promise<{
+  catName: string;
+  birthday: string | null;
+  photoUrl: string | null;
+  calorieWarnings: DailyCalorieWarning[];
+}> {
   const supabase = await createSupabaseServer();
 
   const {
@@ -83,15 +99,41 @@ async function loadProfile(): Promise<{ catName: string; birthday: string | null
     catId = Number(cats[0].id);
   }
 
-  const { data } = await supabase
-    .from("cats")
-    .select("name, birthday, photo_path")
-    .eq("id", catId)
-    .maybeSingle();
+  const todayYmd = jstYmd(new Date());
+  const recentDates = getRecentJstDateKeys(todayYmd);
+  const { fromIso, toIso } = getJstDayRangeIso(
+    recentDates[0],
+    recentDates[recentDates.length - 1]
+  );
 
-  const profile = (data ?? null) as { name: string | null; birthday: string | null; photo_path: string | null } | null;
+  const [profileResult, mealsResult] = await Promise.all([
+    supabase
+      .from("cats")
+      .select("name, birthday, photo_path, daily_kcal_warning_threshold")
+      .eq("id", catId)
+      .maybeSingle(),
+    supabase
+      .from("cat_meals")
+      .select("dt,kcal,leftover_g,kcal_per_g_snapshot")
+      .eq("cat_id", catId)
+      .gte("dt", fromIso)
+      .lte("dt", toIso),
+  ]);
+
+  const data = profileResult.data;
+
+  const profile = (data ?? null) as {
+    name: string | null;
+    birthday: string | null;
+    photo_path: string | null;
+    daily_kcal_warning_threshold: number | null;
+  } | null;
   const catName = profile?.name?.trim() || "愛猫";
   const birthday = profile?.birthday ?? null;
+  const warningThreshold = normalizeCalorieWarningThreshold(
+    profile?.daily_kcal_warning_threshold ??
+      DEFAULT_DAILY_KCAL_WARNING_THRESHOLD
+  );
 
   let photoUrl: string | null = null;
   if (profile?.photo_path) {
@@ -99,7 +141,15 @@ async function loadProfile(): Promise<{ catName: string; birthday: string | null
     photoUrl = result?.data?.publicUrl ?? null;
   }
 
-  return { catName, birthday, photoUrl };
+  const calorieWarnings = mealsResult.error
+    ? []
+    : calculateDailyCalorieWarnings({
+        rows: (mealsResult.data ?? []) as CalorieMealRecord[],
+        threshold: warningThreshold,
+        todayYmd,
+      });
+
+  return { catName, birthday, photoUrl, calorieWarnings };
 }
 
 export default async function HomePage() {
@@ -109,6 +159,8 @@ export default async function HomePage() {
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
+      <CalorieWarningBanner warnings={profile.calorieWarnings} />
+
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold tracking-tight">猫ログ</h1>
         <p className="text-sm text-zinc-600">(C)2026 N.Yokoyama</p>

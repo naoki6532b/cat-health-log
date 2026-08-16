@@ -89,6 +89,7 @@ export async function GET(req: Request) {
 
 type PatchItem = {
   meal_id?: number | string | null;
+  food_id?: number | string | null;
   grams?: number | string | null;
   kcal?: number | string | null;
 };
@@ -102,7 +103,7 @@ type PatchBody = {
 /**
  * セット（同一 meal_group_id）の給餌量をまとめて修正する。
  * - dt を渡すとグループ全行の日時を揃える
- * - items の各行は grams（必須）、kcal（任意・未指定なら snapshot から再計算）
+ * - items の各行は food_id / grams（必須）、kcal（任意・未指定なら snapshot から再計算）
  * - anchor と同じグループに属する行のみ更新する
  */
 export async function PATCH(req: Request) {
@@ -147,6 +148,39 @@ export async function PATCH(req: Request) {
     snapMap.set(Number(r.id), Number(r.kcal_per_g_snapshot ?? NaN));
   }
 
+  const requestedFoodIds = Array.from(
+    new Set(
+      items
+        .map((item) =>
+          parseId(item.food_id != null ? String(item.food_id) : null)
+        )
+        .filter((foodId): foodId is number => foodId != null)
+    )
+  );
+  const foodSnapshotMap = new Map<number, number>();
+
+  if (requestedFoodIds.length > 0) {
+    const { data: foods, error: foodErr } = await supabase
+      .from("cat_foods")
+      .select("id,kcal_per_g")
+      .in("id", requestedFoodIds);
+
+    if (foodErr) {
+      return NextResponse.json({ error: foodErr.message }, { status: 500 });
+    }
+
+    for (const food of foods ?? []) {
+      foodSnapshotMap.set(Number(food.id), Number(food.kcal_per_g));
+    }
+
+    if (foodSnapshotMap.size !== requestedFoodIds.length) {
+      return NextResponse.json(
+        { error: "選択されたフードが見つかりません" },
+        { status: 400 }
+      );
+    }
+  }
+
   let dtIso: string | null = null;
   if (body.dt != null && body.dt !== "") {
     const parsed = new Date(body.dt);
@@ -163,6 +197,22 @@ export async function PATCH(req: Request) {
     if (!id || !snapMap.has(id)) continue; // グループ外の行は無視
 
     const patch: Record<string, unknown> = {};
+
+    const foodId = parseId(
+      it.food_id != null ? String(it.food_id) : null
+    );
+    let snapshot = snapMap.get(id);
+    if (it.food_id != null) {
+      if (!foodId || !foodSnapshotMap.has(foodId)) {
+        return NextResponse.json(
+          { error: `invalid food_id for meal_id=${id}` },
+          { status: 400 }
+        );
+      }
+      snapshot = foodSnapshotMap.get(foodId);
+      patch.food_id = foodId;
+      patch.kcal_per_g_snapshot = snapshot;
+    }
 
     const grams =
       it.grams == null || it.grams === "" ? null : Number(it.grams);
@@ -186,9 +236,8 @@ export async function PATCH(req: Request) {
       }
       patch.kcal = kcalIn;
     } else if (grams != null) {
-      const snap = snapMap.get(id);
-      if (snap != null && Number.isFinite(snap)) {
-        patch.kcal = Number((grams * snap).toFixed(3));
+      if (snapshot != null && Number.isFinite(snapshot)) {
+        patch.kcal = Number((grams * snapshot).toFixed(3));
       }
     }
 

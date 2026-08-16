@@ -218,6 +218,34 @@ export default function MealEditPage() {
     );
   };
 
+  const onChangeRowFood = (rowId: number, nextFoodId: string) => {
+    const nextFood = foods.find((food) => String(food.id) === nextFoodId);
+    if (!nextFood) return;
+
+    setGroupRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== rowId) return row;
+
+        const gramsValue = Number(row.grams);
+        const nextSnapshot = Number(nextFood.kcal_per_g);
+        const nextKcal =
+          Number.isFinite(gramsValue) &&
+          Number.isFinite(nextSnapshot) &&
+          nextSnapshot > 0
+            ? (gramsValue * nextSnapshot).toFixed(1)
+            : row.kcal;
+
+        return {
+          ...row,
+          food_id: Number(nextFood.id),
+          food_name: nextFood.food_name,
+          kcal_per_g_snapshot: nextSnapshot,
+          kcal: nextKcal,
+        };
+      })
+    );
+  };
+
   // セットモード：kcal 変更 → snapshot から grams 再計算
   const onChangeRowKcal = (rowId: number, v: string) => {
     setGroupRows((prev) =>
@@ -250,6 +278,7 @@ export default function MealEditPage() {
         const k = Number(r.kcal);
         return {
           meal_id: r.id,
+          food_id: r.food_id,
           grams: g,
           kcal: Number.isFinite(k) && k > 0 ? k : null,
         };
@@ -267,7 +296,7 @@ export default function MealEditPage() {
 
       await ensureOk(res);
 
-      setMsg("セットの給餌量を保存しました");
+      setMsg("セットのフードと給餌量を保存しました");
       await loadMeal();
     } catch (e: any) {
       setMsg("ERROR: " + String(e?.message ?? e));
@@ -327,7 +356,7 @@ export default function MealEditPage() {
           <h1 className="text-2xl font-semibold tracking-tight">給餌 修正</h1>
           <p className="text-sm text-zinc-500">
             {isGroup
-              ? "セットで登録された給餌です。フードごとの量をまとめて修正できます"
+              ? "セットで登録された給餌です。フードと量をまとめて修正できます"
               : "保存に失敗した場合は原因を表示します"}
           </p>
         </div>
@@ -370,7 +399,7 @@ export default function MealEditPage() {
           </div>
 
           <div className="mt-5">
-            <div className="mb-2 text-sm font-medium">フード別の給餌量</div>
+            <div className="mb-2 text-sm font-medium">フード別の給餌内容</div>
 
             <div className="space-y-2">
               {groupRows.map((r) => (
@@ -378,10 +407,22 @@ export default function MealEditPage() {
                   key={r.id}
                   className="rounded-2xl border bg-white px-3 py-3"
                 >
-                  <div className="text-sm font-medium">
-                    {r.food_name ?? `food_id:${r.food_id}`}
-                  </div>
-                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <label className="block">
+                      <div className="mb-1 text-xs text-zinc-500">フード</div>
+                      <select
+                        value={String(r.food_id)}
+                        onChange={(e) => onChangeRowFood(r.id, e.target.value)}
+                        className="w-full rounded-2xl border bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-zinc-900/10"
+                      >
+                        {foods.map((food) => (
+                          <option key={String(food.id)} value={String(food.id)}>
+                            {food.food_name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
                     <label className="block">
                       <div className="mb-1 text-xs text-zinc-500">グラム (g)</div>
                       <input
@@ -409,7 +450,7 @@ export default function MealEditPage() {
             </div>
 
             <div className="mt-2 text-xs text-zinc-500">
-              ※ g入力でkcal自動、kcal入力でg自動（登録時の1gあたりkcalで計算）
+              ※ フード変更時とg入力時は、選択中フードの1gあたりkcalで自動計算します。
             </div>
           </div>
 

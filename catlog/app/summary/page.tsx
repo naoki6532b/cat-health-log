@@ -4,6 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { apiFetch } from "@/lib/api";
+import CalorieWarningBanner from "@/components/CalorieWarningBanner";
+import {
+  calculateDailyCalorieWarnings,
+  DEFAULT_DAILY_KCAL_WARNING_THRESHOLD,
+  normalizeCalorieWarningThreshold,
+} from "@/lib/calorieWarning";
 
 type MealRow = {
   dt: string;
@@ -891,6 +897,10 @@ export default function SummaryPage() {
   const [rows, setRows] = useState<MealRow[]>([]);
   const [weights, setWeights] = useState<WeightRow[]>([]);
   const [elimRows, setElimRows] = useState<ElimRow[]>([]);
+  const [dailyKcalWarningThreshold, setDailyKcalWarningThreshold] = useState(
+    DEFAULT_DAILY_KCAL_WARNING_THRESHOLD
+  );
+  const [hasLoadedCalorieData, setHasLoadedCalorieData] = useState(false);
   const [msg, setMsg] = useState("");
 
   const [preset, setPreset] = useState<Preset>("7");
@@ -974,10 +984,11 @@ export default function SummaryPage() {
     const weightsUrl = `/api/weights?from=${allFrom}&to=${today}`;
     const elimsUrl = `/api/elims?from=${allFrom}&to=${today}`;
 
-    const [mRes, wRes, eRes] = await Promise.all([
+    const [mRes, wRes, eRes, profileRes] = await Promise.all([
       apiFetch(mealsUrl),
       apiFetch(weightsUrl),
       apiFetch(elimsUrl),
+      apiFetch("/api/cat-profile"),
     ]);
 
     if (!mRes.ok) {
@@ -995,13 +1006,27 @@ export default function SummaryPage() {
       throw new Error(txt || `Elims HTTP ${eRes.status}`);
     }
 
+    if (!profileRes.ok) {
+      const txt = await profileRes.text().catch(() => "");
+      throw new Error(txt || `Profile HTTP ${profileRes.status}`);
+    }
+
     const meals = (await mRes.json()) as MealRow[];
     const wJson = (await wRes.json()) as { data: WeightRow[] };
     const eJson = (await eRes.json()) as { data: ElimRow[] };
+    const profileJson = (await profileRes.json()) as {
+      data?: { daily_kcal_warning_threshold?: number | null };
+    };
 
     setRows(meals ?? []);
     setWeights(wJson?.data ?? []);
     setElimRows(eJson?.data ?? []);
+    setDailyKcalWarningThreshold(
+      normalizeCalorieWarningThreshold(
+        profileJson.data?.daily_kcal_warning_threshold
+      )
+    );
+    setHasLoadedCalorieData(true);
   };
 
   useEffect(() => {
@@ -1371,6 +1396,17 @@ export default function SummaryPage() {
     return { dates: allDates, kcal, avg7 };
   }, [rows, fullMealRangeYmd.from, fullMealRangeYmd.to]);
 
+  const calorieWarnings = useMemo(
+    () =>
+      hasLoadedCalorieData
+        ? calculateDailyCalorieWarnings({
+            rows,
+            threshold: dailyKcalWarningThreshold,
+          })
+        : [],
+    [rows, dailyKcalWarningThreshold, hasLoadedCalorieData]
+  );
+
   const groupChartWidthPx = useMemo(() => {
     return calcAdaptiveChartWidthPx(
       grouped15All.length,
@@ -1422,8 +1458,9 @@ export default function SummaryPage() {
   }, [dailyKcalSeriesAll.kcal]);
 
   const vMaxDaily = useMemo(() => {
-    return maxDaily <= 400 ? 400 : (Math.floor(maxDaily / 100) + 1) * 100;
-  }, [maxDaily]);
+    const maxValue = Math.max(maxDaily, dailyKcalWarningThreshold);
+    return maxValue <= 400 ? 400 : (Math.floor(maxValue / 100) + 1) * 100;
+  }, [maxDaily, dailyKcalWarningThreshold]);
 
   const dailyTicks = useMemo(() => {
     return buildKcalTicks(0, vMaxDaily);
@@ -1636,6 +1673,7 @@ export default function SummaryPage() {
         dData.addColumn({ type: "number", role: "annotation" });
         dData.addColumn("number", "7日平均");
         dData.addColumn({ type: "number", role: "annotation" });
+        dData.addColumn("number", "警告基準");
 
         dData.addRows(
           dailyKcalSeriesAll.dates.map((ymd, i) => {
@@ -1648,6 +1686,7 @@ export default function SummaryPage() {
               showMealDataLabels && v != null ? v : null,
               a == null ? null : a,
               showMealDataLabels && a != null ? a : null,
+              dailyKcalWarningThreshold,
             ];
           })
         );
@@ -1685,8 +1724,17 @@ export default function SummaryPage() {
             textStyle: { fontSize: mealAxisFontSize },
           },
           seriesType: "bars",
-          series: { 0: { type: "bars" }, 1: { type: "line" } },
-          colors: ["#4facfe", "#7bd3ff"],
+          series: {
+            0: { type: "bars" },
+            1: { type: "line" },
+            2: {
+              type: "line",
+              color: "#dc2626",
+              lineWidth: 2,
+              pointSize: 0,
+            },
+          },
+          colors: ["#4facfe", "#7bd3ff", "#dc2626"],
           bar: {
             groupWidth:
               mealRangeDays <= 7
@@ -1813,6 +1861,7 @@ export default function SummaryPage() {
     weightSeriesLabel,
     weightSeriesColor,
     dailyKcalSeriesAll,
+    dailyKcalWarningThreshold,
     showMealDataLabels,
     showWeightDataLabels,
     mealRangeDays,
@@ -1888,6 +1937,8 @@ export default function SummaryPage() {
 
   return (
     <main style={{ padding: 16, maxWidth: 1100 }}>
+      <CalorieWarningBanner warnings={calorieWarnings} />
+
       <h2>集計</h2>
       {msg && <div style={{ color: "red" }}>{msg}</div>}
 

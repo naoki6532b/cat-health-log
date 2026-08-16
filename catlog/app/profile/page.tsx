@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { apiFetch } from "@/lib/api";
+import { DEFAULT_DAILY_KCAL_WARNING_THRESHOLD } from "@/lib/calorieWarning";
 
 type CatProfile = {
   id: number;
   cat_name: string | null;
   birthday: string | null;
   photo_path: string | null;
+  daily_kcal_warning_threshold: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -50,6 +52,9 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<CatProfile | null>(null);
   const [catName, setCatName] = useState("");
   const [birthday, setBirthday] = useState("");
+  const [dailyKcalWarningThreshold, setDailyKcalWarningThreshold] = useState(
+    String(DEFAULT_DAILY_KCAL_WARNING_THRESHOLD)
+  );
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -70,6 +75,7 @@ export default function ProfilePage() {
         cat_name: null,
         birthday: null,
         photo_path: null,
+        daily_kcal_warning_threshold: DEFAULT_DAILY_KCAL_WARNING_THRESHOLD,
         created_at: null,
         updated_at: null,
       };
@@ -77,6 +83,12 @@ export default function ProfilePage() {
     setProfile(next);
     setCatName(next.cat_name ?? "");
     setBirthday(next.birthday ?? "");
+    setDailyKcalWarningThreshold(
+      String(
+        next.daily_kcal_warning_threshold ??
+          DEFAULT_DAILY_KCAL_WARNING_THRESHOLD
+      )
+    );
   }
 
   useEffect(() => {
@@ -93,6 +105,7 @@ export default function ProfilePage() {
         body: JSON.stringify({
           cat_name: catName,
           birthday: birthday || null,
+          daily_kcal_warning_threshold: Number(dailyKcalWarningThreshold),
         }),
       });
 
@@ -261,6 +274,23 @@ export default function ProfilePage() {
               />
             </label>
 
+            <label className="block text-sm">
+              <div className="mb-1 font-medium text-zinc-700">
+                警告基準カロリー（kcal／日）
+              </div>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={dailyKcalWarningThreshold}
+                onChange={(e) => setDailyKcalWarningThreshold(e.target.value)}
+                className="input"
+              />
+              <div className="mt-1 text-xs text-zinc-500">
+                直近7日の日別実食カロリーがこの値以下の場合に警告します。
+              </div>
+            </label>
+
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs font-semibold text-zinc-500">トップ画面の年齢表示</div>
               <div className="mt-2 text-base font-semibold text-zinc-900">
@@ -278,6 +308,7 @@ export default function ProfilePage() {
               <div className="font-semibold text-zinc-900">メモ</div>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 <li>トップ画面では年齢を自動計算して「n歳nか月」で表示します。</li>
+                <li>警告基準カロリーの初期値は240 kcal／日です。</li>
                 <li>写真は jpg / png / webp、5MB 以下です。</li>
                 <li>ヘッダーからはどの画面でもトップへ戻れますが、トップ画面自身にはトップボタンは出しません。</li>
               </ul>
