@@ -46,7 +46,7 @@ export function getRecentJstDateKeys(
 ) {
   const safeDays = Math.max(1, Math.floor(days));
   return Array.from({ length: safeDays }, (_, index) =>
-    addDaysYmd(todayYmd, index - (safeDays - 1))
+    addDaysYmd(todayYmd, index - safeDays)
   );
 }
 

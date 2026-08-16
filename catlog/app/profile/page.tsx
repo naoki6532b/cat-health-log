@@ -287,7 +287,7 @@ export default function ProfilePage() {
                 className="input"
               />
               <div className="mt-1 text-xs text-zinc-500">
-                直近7日の日別実食カロリーがこの値以下の場合に警告します。
+                今日を除く直近7日の日別実食カロリーがこの値以下の場合に警告します。
               </div>
             </label>
 
