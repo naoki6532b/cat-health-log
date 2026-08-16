@@ -10,6 +10,11 @@ import {
   DEFAULT_WEIGHT_WARNING_DAYS,
   normalizeWarningDays,
 } from "@/lib/healthRecordWarning";
+import {
+  DEFAULT_RECENT_MEAL_LOG_DAYS,
+  MAX_RECENT_MEAL_LOG_DAYS,
+  normalizeRecentMealLogDays,
+} from "@/lib/mealLogSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +28,7 @@ type CatProfileRow = {
   weight_warning_days: number;
   stool_warning_days: number;
   urine_warning_days: number;
+  recent_meal_log_days: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -48,6 +54,9 @@ function toProfile(row: any): CatProfileRow {
       row.urine_warning_days,
       DEFAULT_URINE_WARNING_DAYS
     ),
+    recent_meal_log_days: normalizeRecentMealLogDays(
+      row.recent_meal_log_days
+    ),
     created_at: row.created_at ?? null,
     updated_at: row.updated_at ?? null,
   };
@@ -72,7 +81,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from("cats")
       .select(
-        "id, name, birthday, photo_path, daily_kcal_warning_threshold, weight_warning_days, stool_warning_days, urine_warning_days, created_at, updated_at"
+        "id, name, birthday, photo_path, daily_kcal_warning_threshold, weight_warning_days, stool_warning_days, urine_warning_days, recent_meal_log_days, created_at, updated_at"
       )
       .eq("id", catId)
       .single();
@@ -112,6 +121,9 @@ export async function PATCH(req: Request) {
     const urineWarningDays = Number(
       body.urine_warning_days ?? DEFAULT_URINE_WARNING_DAYS
     );
+    const recentMealLogDays = Number(
+      body.recent_meal_log_days ?? DEFAULT_RECENT_MEAL_LOG_DAYS
+    );
 
     if (!catName) {
       return NextResponse.json({ error: "猫の名前は必須です" }, { status: 400 });
@@ -142,6 +154,19 @@ export async function PATCH(req: Request) {
       }
     }
 
+    if (
+      !Number.isInteger(recentMealLogDays) ||
+      recentMealLogDays < 1 ||
+      recentMealLogDays > MAX_RECENT_MEAL_LOG_DAYS
+    ) {
+      return NextResponse.json(
+        {
+          error: `最近の給餌ログ表示日数は1〜${MAX_RECENT_MEAL_LOG_DAYS}の整数で入力してください`,
+        },
+        { status: 400 }
+      );
+    }
+
     const { data, error } = await supabase
       .from("cats")
       .update({
@@ -151,11 +176,12 @@ export async function PATCH(req: Request) {
         weight_warning_days: weightWarningDays,
         stool_warning_days: stoolWarningDays,
         urine_warning_days: urineWarningDays,
+        recent_meal_log_days: recentMealLogDays,
         updated_at: new Date().toISOString(),
       })
       .eq("id", catId)
       .select(
-        "id, name, birthday, photo_path, daily_kcal_warning_threshold, weight_warning_days, stool_warning_days, urine_warning_days, created_at, updated_at"
+        "id, name, birthday, photo_path, daily_kcal_warning_threshold, weight_warning_days, stool_warning_days, urine_warning_days, recent_meal_log_days, created_at, updated_at"
       )
       .single();
 

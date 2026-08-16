@@ -79,7 +79,7 @@ function useLockBodyScroll(locked: boolean) {
  * - 修正/削除
  * - 残り入力（フード別g / 全体%）をモーダルで登録
  */
-export default function RecentMeals({ limit = 20 }: { limit?: number }) {
+export default function RecentMeals() {
   const router = useRouter();
   const [items, setItems] = useState<Meal[]>([]);
   const [msg, setMsg] = useState<string>("");
@@ -107,7 +107,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
   const reload = useCallback(async () => {
     setMsg("");
     const res = await apiFetch(
-      `/api/meals/recent?limit=${encodeURIComponent(String(limit))}`,
+      "/api/meals/recent",
       { cache: "no-store" }
     );
     if (!res.ok) {
@@ -116,7 +116,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
     }
     const data = (await res.json()) as Meal[];
     setItems(Array.isArray(data) ? data : []);
-  }, [limit]);
+  }, []);
 
   useEffect(() => {
     reload().catch((e) => setMsg("ERROR: " + String(e?.message ?? e)));
@@ -352,7 +352,10 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
 
       <div className="space-y-2">
         {items.map((m) => (
-          <div key={m.id} className="rounded-2xl border bg-white p-3 shadow-sm">
+          <div
+            key={m.id}
+            className="rounded-2xl border bg-white p-3 shadow-sm [contain-intrinsic-size:80px] [content-visibility:auto]"
+          >
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold">{fmtJst(m.dt)}</div>

@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireCatContext } from "@/lib/serverAuth";
+import { addDaysYmd, jstYmd } from "@/lib/calorieWarning";
+import { normalizeRecentMealLogDays } from "@/lib/mealLogSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -23,13 +25,25 @@ function calcNet(r: any) {
   return { net_grams, net_kcal };
 }
 
-export async function GET(req: Request) {
+export async function GET() {
   const auth = await requireCatContext();
   if (auth instanceof NextResponse) return auth;
   const { supabase, catId } = auth;
 
-  const url = new URL(req.url);
-  const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") ?? "20")));
+  const { data: cat, error: catError } = await supabase
+    .from("cats")
+    .select("recent_meal_log_days")
+    .eq("id", catId)
+    .single();
+
+  if (catError) {
+    return NextResponse.json({ error: catError.message }, { status: 500 });
+  }
+
+  const days = normalizeRecentMealLogDays(cat?.recent_meal_log_days);
+  const todayYmd = jstYmd(new Date());
+  const fromYmd = addDaysYmd(todayYmd, -(days - 1));
+  const fromIso = `${fromYmd}T00:00:00+09:00`;
 
   const { data, error } = await supabase
     .from("cat_meals")
@@ -37,8 +51,9 @@ export async function GET(req: Request) {
       "id,dt,food_id,grams,kcal,note,kcal_per_g_snapshot,leftover_g,meal_group_id,cat_foods(food_name)"
     )
     .eq("cat_id", catId)
+    .gte("dt", new Date(fromIso).toISOString())
     .order("dt", { ascending: false })
-    .limit(limit);
+    .limit(1000);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 

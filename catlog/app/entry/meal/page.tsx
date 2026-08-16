@@ -588,7 +588,7 @@ export default function MealEntryPage() {
 
       {/* 直近ログ */}
       <div className="rounded-3xl border bg-white p-4 shadow-sm sm:p-6">
-        <RecentMeals key={recentKey} limit={20} />
+        <RecentMeals key={recentKey} />
       </div>
     </div>
   );

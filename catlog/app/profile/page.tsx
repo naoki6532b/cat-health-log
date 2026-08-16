@@ -9,6 +9,7 @@ import {
   DEFAULT_URINE_WARNING_DAYS,
   DEFAULT_WEIGHT_WARNING_DAYS,
 } from "@/lib/healthRecordWarning";
+import { DEFAULT_RECENT_MEAL_LOG_DAYS } from "@/lib/mealLogSettings";
 
 type CatProfile = {
   id: number;
@@ -19,6 +20,7 @@ type CatProfile = {
   weight_warning_days: number;
   stool_warning_days: number;
   urine_warning_days: number;
+  recent_meal_log_days: number;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -135,6 +137,9 @@ export default function ProfilePage() {
   const [urineWarningDays, setUrineWarningDays] = useState(
     String(DEFAULT_URINE_WARNING_DAYS)
   );
+  const [recentMealLogDays, setRecentMealLogDays] = useState(
+    String(DEFAULT_RECENT_MEAL_LOG_DAYS)
+  );
   const [msg, setMsg] = useState("");
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -166,6 +171,7 @@ export default function ProfilePage() {
         weight_warning_days: DEFAULT_WEIGHT_WARNING_DAYS,
         stool_warning_days: DEFAULT_STOOL_WARNING_DAYS,
         urine_warning_days: DEFAULT_URINE_WARNING_DAYS,
+        recent_meal_log_days: DEFAULT_RECENT_MEAL_LOG_DAYS,
         created_at: null,
         updated_at: null,
       };
@@ -187,6 +193,9 @@ export default function ProfilePage() {
     );
     setUrineWarningDays(
       String(next.urine_warning_days ?? DEFAULT_URINE_WARNING_DAYS)
+    );
+    setRecentMealLogDays(
+      String(next.recent_meal_log_days ?? DEFAULT_RECENT_MEAL_LOG_DAYS)
     );
   }
 
@@ -244,6 +253,7 @@ export default function ProfilePage() {
           weight_warning_days: Number(weightWarningDays),
           stool_warning_days: Number(stoolWarningDays),
           urine_warning_days: Number(urineWarningDays),
+          recent_meal_log_days: Number(recentMealLogDays),
         }),
       });
 
@@ -533,6 +543,24 @@ export default function ProfilePage() {
               </div>
             </label>
 
+            <label className="block text-sm">
+              <div className="mb-1 font-medium text-zinc-700">
+                最近の給餌ログ表示日数
+              </div>
+              <input
+                type="number"
+                min="1"
+                max="365"
+                step="1"
+                value={recentMealLogDays}
+                onChange={(e) => setRecentMealLogDays(e.target.value)}
+                className="input"
+              />
+              <div className="mt-1 text-xs text-zinc-500">
+                給餌入力画面に、今日を含む直近n日間のログを表示します。
+              </div>
+            </label>
+
             <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
               <div className="text-xs font-semibold text-zinc-500">トップ画面の年齢表示</div>
               <div className="mt-2 text-base font-semibold text-zinc-900">
@@ -553,6 +581,7 @@ export default function ProfilePage() {
                 <li>警告基準カロリーの初期値は240 kcal／日です。</li>
                 <li>体重計測警告日数の初期値は10日です。</li>
                 <li>うんち・おしっこ警告日数の初期値は各2日です。</li>
+                <li>最近の給餌ログ表示日数の初期値は7日です。</li>
                 <li>写真は jpg / png / webp、5MB 以下です。</li>
                 <li>ヘッダーからはどの画面でもトップへ戻れますが、トップ画面自身にはトップボタンは出しません。</li>
               </ul>
