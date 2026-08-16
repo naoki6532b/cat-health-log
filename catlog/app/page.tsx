@@ -163,10 +163,6 @@ export default async function HomePage() {
                 プロフィール設定
               </Link>
             </div>
-
-            <p className="mt-5 text-sm leading-6 text-zinc-600">
-              誕生日から今日時点の年齢を自動計算して表示しています。
-            </p>
           </div>
         </div>
       </section>
