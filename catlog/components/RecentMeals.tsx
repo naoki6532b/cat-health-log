@@ -350,46 +350,48 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
         </div>
       ) : null}
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {items.map((m) => (
-          <div key={m.id} className="rounded-3xl border bg-white p-4 shadow-sm sm:p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-base font-semibold">{fmtJst(m.dt)}</div>
-                <div className="mt-1 text-sm text-zinc-700">フード：{m.food_name ?? "（不明）"}</div>
+          <div key={m.id} className="rounded-2xl border bg-white p-3 shadow-sm">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold">{fmtJst(m.dt)}</div>
+                <div className="mt-0.5 truncate text-sm text-zinc-700" title={m.food_name ?? "（不明）"}>
+                  フード：{m.food_name ?? "（不明）"}
+                </div>
 
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                     置いたg: {m.grams ?? "－"}
                   </span>
-                  <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                     置いたkcal: {m.kcal ?? "－"}
                   </span>
 
                   {m.leftover_g != null ? (
-                    <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                       残りg: {m.leftover_g}
                     </span>
                   ) : null}
 
                   {m.net_kcal != null ? (
-                    <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                       実食kcal: {m.net_kcal}
                     </span>
                   ) : null}
 
                   {m.note ? (
-                    <span className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs text-zinc-700">
+                    <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
                       note: {m.note}
                     </span>
                   ) : null}
                 </div>
               </div>
 
-              <div className="flex shrink-0 flex-col gap-2">
+              <div className="flex shrink-0 items-center justify-end gap-1.5">
                 <button
                   type="button"
-                  className="relative z-10 touch-manipulation select-none rounded-2xl border bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
+                  className="relative z-10 touch-manipulation select-none rounded-xl border bg-white px-3 py-1.5 text-xs font-medium hover:bg-zinc-50 active:scale-[0.99]"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -401,7 +403,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
 
                 <button
                   type="button"
-                  className="relative z-10 touch-manipulation select-none rounded-2xl border bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50 active:scale-[0.99]"
+                  className="relative z-10 touch-manipulation select-none rounded-xl border bg-white px-3 py-1.5 text-xs font-medium hover:bg-zinc-50 active:scale-[0.99]"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -413,7 +415,7 @@ export default function RecentMeals({ limit = 20 }: { limit?: number }) {
 
                 <button
                   type="button"
-                  className="relative z-10 touch-manipulation select-none rounded-2xl bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-500 active:scale-[0.99]"
+                  className="relative z-10 touch-manipulation select-none rounded-xl bg-red-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-red-500 active:scale-[0.99]"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
