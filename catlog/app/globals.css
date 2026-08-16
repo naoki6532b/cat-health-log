@@ -35,6 +35,11 @@ body {
 .navbtn:hover { background: rgba(255,255,255,1); }
 
 .site-header .navbtn {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   border-radius: 0.5rem;
 }
 
